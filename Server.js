@@ -21,7 +21,7 @@ mongoClient.connect(mongoUrl, function (error, database) {
 app.use(bodyParser.urlencoded({ extended: false }));
 
 /**
-  * Every 1 minuite, record the price of all of the stocks in the objects table 
+  * Every 1 minute, record the price of all of the stocks in the objects table 
   * (stocks have the type: "stock"). (every 0th second)
   */
 schedule.scheduleJob('00 * * * * *', function() {
@@ -29,10 +29,10 @@ schedule.scheduleJob('00 * * * * *', function() {
     for(var queryIndex = 0; queryIndex <= Math.floor((symbols.length-1)/20); queryIndex++) {
         // delay the query in order to create even distribution of queries over the entire minute period
         // (send a query every 2 seconds)
-        setTimeout(function (symbolsToUpdate) {
-            return function () { updateObjectsValues(symbolsToUpdate) }
+        setTimeout(function (symbolsToGrab) {
+            return function () { grabAndInsertNewStockValues(symbolsToGrab) }
         }(symbols.slice(queryIndex * 20, (queryIndex + 1) * 20)), queryIndex * 2000);
-    }   
+    }
 });
 
 /**
@@ -47,19 +47,18 @@ schedule.scheduleJob('* 00 * * * *', function() {
     if (!mongoError) {
         var objectsCollection = db.collection('objects');
         // remove all prices recorded before 25 hours ago.
-        objectsCollection.update(
-            { },
-            { $pull: { values: {$match: { time: {$lte : twentyFiveHoursAgoTime} } } } },
-            { multi: true }
+        objectsCollection.deleteMany(
+            {$match: { time: {$lte : twentyFiveHoursAgoTime} } },
+            function (err, result) {}
         );
     }
 });
 
 /**
-  * Update the object specified in the objectNames array
+  * For each of the symbols, grab the current price and store it in the Values table
   */
-var updateObjectsValues = function (objectNames) {
-    var queryString = "select * from yahoo.finance.quote where symbol in ('" + objectNames.join("','") + "') ";
+var grabAndInsertNewStockValues = function (symbols) {
+    var queryString = "select * from yahoo.finance.quote where symbol in ('" + symbols.join("','") + "') ";
     var queryYQL = new YQL(queryString);
 
     queryYQL.exec(function (err, data) {
@@ -67,27 +66,16 @@ var updateObjectsValues = function (objectNames) {
             for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
                 var thisQuote = data.query.results.quote[resultIndex];
                 var currentTime = Math.floor((new Date).getTime() / 60000) * 60;
-                var objectsCollection = db.collection('objects');
-                objectsCollection.updateOne(
-                    { object: thisQuote.symbol },
-                    {
-                        $push: {
-                            values: {
-                                $each: [{
-                                    value: thisQuote.LastTradePriceOnly,
-                                    time: currentTime
-                                }
-                                ]
-                            }
-                        }
-                    },
-                    function (err, results) { });
+                // insert the stock price into the values collection
+                var valuesCollection = db.collection('values');
+                valuesCollection.insertOne({
+                    object: thisQuote.Symbol,
+                    type: "stock",
+                    value: thisQuote.LastTradePriceOnly,
+                    time: currentTime
+                }, function (err, result) { });
             }
-
-            // If still open within 20 seconds, then close the db connection
-            setTimeout(function () { db.close(); }, 20000);
         }
-        
     });
 }
 
@@ -109,12 +97,9 @@ initialRouter.use(function (req, res, next) {
                 queryYQL.exec(function(err, data) {
                     objectsCollection.insertOne({
                         object: data.query.results.quote.Symbol,
-                        company: data.query.results.quote.Name,
                         type: "stock",
-                        values: []
+                        company: data.query.results.quote.Name
                     }, function (err, result) {});
-                    //console.log(data.query.results.quote.Name);
-                    //console.log(data.query.results.quote.Name);
                 });
             }
         }
