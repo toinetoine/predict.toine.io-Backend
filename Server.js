@@ -9,6 +9,14 @@ var mongoUrl = 'mongodb://localhost:27017/predict';
 
 var schedule = require('node-schedule');
 
+var db;
+var mongoError;
+mongoClient.connect(mongoUrl, function (error, database) { 
+    db = database;
+    mongoError = error;
+    console.log("starting....");
+});
+
 // configuring express to use body-parser as middle-ware.
 app.use(bodyParser.urlencoded({ extended: false }));
 
@@ -36,18 +44,15 @@ schedule.scheduleJob('* 00 * * * *', function() {
     var twentyFiveHoursAgoTime = Math.floor((new Date).getTime() / 1000);
     // time 25 hours ago
     twentyFiveHoursAgoTime -= (25*60*60);
-
-    mongoClient.connect(mongoUrl, function (mongoError, db) {
-        if (!mongoError) {
-            var objectsCollection = db.collection('objects');
-            // remove all prices recorded before 25 hours ago.
-            objectsCollection.update(
-                { },
-                { $pull: { values: {$match: { time: {$lte : twentyFiveHoursAgoTime} } } } },
-                { multi: true }
-            );
-        }
-    });
+    if (!mongoError) {
+        var objectsCollection = db.collection('objects');
+        // remove all prices recorded before 25 hours ago.
+        objectsCollection.update(
+            { },
+            { $pull: { values: {$match: { time: {$lte : twentyFiveHoursAgoTime} } } } },
+            { multi: true }
+        );
+    }
 });
 
 /**
@@ -58,32 +63,31 @@ var updateObjectsValues = function (objectNames) {
     var queryYQL = new YQL(queryString);
 
     queryYQL.exec(function (err, data) {
-        mongoClient.connect(mongoUrl, function (mongoError, db) {
-            if (!mongoError) {
-                for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
-                    var thisQuote = data.query.results.quote[resultIndex];
-                    var currentTime = Math.floor((new Date).getTime() / 60000) * 60;
-                    var objectsCollection = db.collection('objects');
-                    objectsCollection.updateOne(
-                        { object: thisQuote.symbol },
-                        {
-                            $push: {
-                                values: {
-                                    $each: [{
-                                        value: thisQuote.LastTradePriceOnly,
-                                        time: currentTime
-                                    }
-                                    ]
+        if (!mongoError) {
+            for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
+                var thisQuote = data.query.results.quote[resultIndex];
+                var currentTime = Math.floor((new Date).getTime() / 60000) * 60;
+                var objectsCollection = db.collection('objects');
+                objectsCollection.updateOne(
+                    { object: thisQuote.symbol },
+                    {
+                        $push: {
+                            values: {
+                                $each: [{
+                                    value: thisQuote.LastTradePriceOnly,
+                                    time: currentTime
                                 }
+                                ]
                             }
-                        },
-                        function (err, results) { });
-                }
-
-                // If still open within 20 seconds, then close the db connection
-                setTimeout(function () { db.close(); }, 20000);
+                        }
+                    },
+                    function (err, results) { });
             }
-        });
+
+            // If still open within 20 seconds, then close the db connection
+            setTimeout(function () { db.close(); }, 20000);
+        }
+        
     });
 }
 
@@ -117,4 +121,4 @@ initialRouter.use(function (req, res, next) {
     });
 });*/
 
-app.listen(3060);
+app.listen(3090);
