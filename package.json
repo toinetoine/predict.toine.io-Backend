@@ -1,0 +1,11 @@
+{
+  "name": "express-html",
+  "version": "0.0.1",
+  "dependencies": {
+    "express": "latest",
+    "mongodb": "latest",
+    "body-parser": "latest",
+    "node-schedule": "latest",
+    "yql": "latest"
+  }
+}
