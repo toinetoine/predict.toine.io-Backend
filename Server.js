@@ -94,16 +94,16 @@ var grabAndInsertNewStockValues = function (symbols) {
 var checkActivePredictions = function () {
 
     if (!mongoError) {
-        console.log("checking....");
+        //console.log("checking....");
         // the current epoch time
         var currentTime = Math.floor(new Date().getTime() / 1000);
         var predictionsCollection = db.collection('predictions');
         predictionsCollection.find({ type: "stock", status: "active" }).toArray(function (err, activePredictions) {
             // for each of the active predictions, check if they've been proven true, proven false, or still active
-            console.log("Found: " + activePredictions.length + " active predictions.");
+            //console.log("Found: " + activePredictions.length + " active predictions.");
             for (var i = 0; i < activePredictions.length; i++) {
                 var activePrediction = activePredictions[i];
-                console.log(activePredictions[i]);
+                //console.log(activePredictions[i]);
                 // get all values with a time greater then the prediction's last_checked time
                 // (or if the prediction doesn't have a last checked, then get all of the values 
                 // with time greater than the predictions start time) and less than the predictions end time.
