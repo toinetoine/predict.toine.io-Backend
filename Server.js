@@ -15,7 +15,7 @@ mongoClient.connect(mongoUrl, function (error, database) {
     db = database;
     mongoError = error;
     console.log("starting....");
-    checkActivePredictions();
+    //checkActivePredictions();
 });
 
 // configuring express to use body-parser as middle-ware.
@@ -112,8 +112,8 @@ var checkActivePredictions = function () {
                 var valuesFindObject = {};
                 valuesFindObject.time = {};
                 // lower bound for time of values to check prediction against
-                if(activePrediction.hasOwnProperty("lastChecked")) {
-                    valuesFindObject.time.$gte = activePrediction.lastChecked;
+                if(activePrediction.hasOwnProperty("lastCheckedTime")) {
+                    valuesFindObject.time.$gte = activePrediction.lastCheckedTime;
                 }
                 else {
                     valuesFindObject.time.$gte = activePrediction.start;
@@ -122,6 +122,9 @@ var checkActivePredictions = function () {
                 valuesFindObject.time.$lte = activePrediction.end;
                 valuesFindObject.type = "stock";
                 var valuesCollection = db.collection('values');
+                valuesCollection.findOne(sort=[("time", -1)]);
+
+
                 valuesCollection.find(valuesFindObject).toArray(function (err, newValues) {
                     // go through each of the possible cases that could cause prediction to fail
                     // predictionCheckResult stores the result of the checks
