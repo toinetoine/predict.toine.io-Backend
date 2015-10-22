@@ -69,11 +69,12 @@ schedule.scheduleJob('* 0 * * * *', function() {
 var grabAndInsertNewStockValues = function (symbols) {
     var queryString = "select * from yahoo.finance.quote where symbol in ('" + symbols.join("','") + "') ";
     var queryYQL = new YQL(queryString);
-
+    
+    // execute the query to retreive the prices
     queryYQL.exec(function (err, data) {
         if (!mongoError && data != null && data.hasOwnProperty("query") && data.query.hasOwnProperty("results")) {
+            // documents to insert as values (one for each price received)
             var currentTime = Math.floor((new Date).getTime() / 60000) * 60;
-
             var newPriceDocuments = Array();
             for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
                 var thisQuote = data.query.results.quote[resultIndex];
@@ -84,8 +85,18 @@ var grabAndInsertNewStockValues = function (symbols) {
                 priceDocument.time = currentTime;
                 newPriceDocuments.push(priceDocument);
             }
+            // insert the value in the values collection
             var valuesCollection = db.collection('values');
-            valuesCollection.insert(newPriceDocuments, function (err, result) { });
+            valuesCollection.insert(newPriceDocuments, function (errValuesInsert, resultValuesInsert) {
+                // remove all values from the recentValues collection that match symbols about to be inserted
+                var recentValuesCollection = db.collection('recentValues');
+                recentValuesCollection.deleteMany(
+                    { $match: { object: { $in: symbols } } },
+                    function (errRecentValuesRemove, resultRecentValuesRemove) {
+                        // insert all of the new values in the recentValues collection (should replace all one's that were jsut removed)
+                        recentValuesCollection.insert(newPriceDocuments, function (errRecentValuesInsert, resultRecentValuesInsert) { /* done! */ });
+                    });
+            });
         }
     });
 }
@@ -96,103 +107,85 @@ var grabAndInsertNewStockValues = function (symbols) {
 var checkActivePredictions = function () {
 
     if (!mongoError) {
-        //console.log("checking....");
-        // the current epoch time
-        var currentTime = Math.floor(new Date().getTime() / 1000);
         var predictionsCollection = db.collection('predictions');
         predictionsCollection.find({ type: "stock", status: "active" }).toArray(function (err, activePredictions) {
-            // for each of the active predictions, check if they've been proven true, proven false, or still active
-            //console.log("Found: " + activePredictions.length + " active predictions.");
-            for (var i = 0; i < activePredictions.length; i++) {
-                var activePrediction = activePredictions[i];
-                //console.log(activePredictions[i]);
-                // get all values with a time greater then the prediction's last_checked time
-                // (or if the prediction doesn't have a last checked, then get all of the values 
-                // with time greater than the predictions start time) and less than the predictions end time.
-                var valuesFindObject = {};
-                valuesFindObject.time = {};
-                // lower bound for time of values to check prediction against
-                if(activePrediction.hasOwnProperty("lastChecked")) {
-                    valuesFindObject.time.$gte = activePrediction.lastChecked;
-                }
-                else {
-                    valuesFindObject.time.$gte = activePrediction.start;
-                }
-                // upper bound for time of values to check prediction against
-                valuesFindObject.time.$lte = activePrediction.end;
-                valuesFindObject.type = "stock";
-                var valuesCollection = db.collection('values');
-                valuesCollection.find(valuesFindObject).toArray(function (err, newValues) {
-                    // go through each of the possible cases that could cause prediction to fail
-                    // predictionCheckResult stores the result of the checks
-                    var predictionCheckResult = {};
-                    predictionCheckResult.status = "active";
-                    predictionCheckResult.reason = "";
-                    for (var i = 0; i < newValues.length; i++) {
-                        if(activePrediction.action == "reach above" && newValues[i].value > activePrediction.value) {
-                            predictionCheckResult.status = "false"
-                            predictionCheckResult.reason = "";
-                        }
-                        else if(activePrediction.action == "sink below" && newValues[i].value < activePrediction.value) {
-                            predictionCheckResult.status = "false"
-                            predictionCheckResult.reason = "";
-                        }
-                        else if(activePrediction.action == "stay above" && newValues[i].value <= activePrediction.value) {
-                            predictionCheckResult.status = "false"
-                            predictionCheckResult.reason = "";
-                        }
-                        else if(activePrediction.action == "stay below" && newValues[i].value >= activePrediction.value) {
-                            predictionCheckResult.status = "false"
-                            predictionCheckResult.reason = "";
-                        }
-                    }
-
-                    // object for updating the prediction in mongo (used later)
-                    var predictionUpdateObject = {};
-                    predictionUpdateObject.$set = {};
-
-                    // if the prediction was found to still be valid, then check if it lapsed (end time has passed)
-                    if (predictionCheckResult.status == "active") {
-                        
-                        if (activePrediction.end <= currentTime) {
-                            // predicition was to stay above or below during the time interval 
-                            // (which it did because it statyed valid until the end time)
-                            if (activePrediction.action == "stay above" || activePrediction.action == "stay below") {
-                                predictionCheckResult.status = "true";
-                                predictionCheckResult.reason = "The price of " + activePrediction.object + " ";
-                                predictionCheckResult += (activePrediction.action == "stay above") ? "stayed above" : "stayed below";
-                                predictionCheckResult += " $" + activePrediction.value.toString();
-                            }
-                            // predicition was to rise above/below a certain value (which it did NOT because the end time 
-                            // has been reached and the prediction status has still not been declared true)
-                            else {
-                                predictionCheckResult.status = "false";
-                                predictionCheckResult.reason = "The price of " + activePrediction.object + " never ";
-                                predictionCheckResult += (activePrediction.action == "reach above") ? "rose above" : "sunk below";
-                                predictionCheckResult += " $" + activePrediction.value.toString();
+            if (typeof (activePredictions) != "undefined" && activePredictions != null) {
+                // fetch all of the recent stock values from the recentValues collection
+                var recentValuesFindObject = {};
+                recentValuesFindObject.type = "stock";
+                var recentValuesCollection = db.collection('recentValues');
+                recentValuesCollection.find(recentValuesFindObject).toArray(function (errRecentValuesFind, recentValues) {
+                    if (typeof (recentValues) != "undefined" && recentValues != null) {
+                        // create an object that maps each stock name to its index in recentValues
+                        var symbolsIndicies = {};
+                        for (var recentValueIndex = 0; recentValueIndex < recentValues.length; recentValueIndex++) {
+                            if (typeof (recentValues.object) != "undefined") {
+                                symbolsIndicies[recentValues.object] = recentValueIndex;
                             }
                         }
-                    }
 
-                    // the prediction status is no longer active, so will need to new status in the prediction update object
-                    else 
-                    {
-                        predictionUpdateObject.$set.status = predictionCheckResult.status;
-                        predictionUpdateObject.$set.reason = predictionCheckResult.reason;
-                    }
+                   
+                        for (var predictionIndex = 0; predictionIndex < activePredictions.length; predictionIndex++) {
+                            var thisPrediction = activePredictions[predictionIndex]
+                            if (symbolsIndicies.hasOwnProperty(thisPrediction.object)) {
+                                // grab this prediction's object's most recent value
+                                var mostRecentValue = recentValues[symbolsIndicies[thisPrediction.object]];
 
-                    
-                    predictionUpdateObject.$set.checked = currentTime;
+                                // the object that will be used to update the prediction
+                                // (assuming it's status has found to have changed from active)
+                                var predictionUpdateObject = {};
+                                predictionUpdateObject.$set = {};
 
+                                // go through each of the possible cases that could cause prediction to fail
+                                if (thisPrediction.action == "reach above" && mostRecentValue.value > thisPrediction.value) {
+                                    predictionUpdateObject.$set.status = "true"
+                                    predictionUpdateObject.$set.reason = "";
+                                }
+                                else if (thisPrediction.action == "sink below" && mostRecentValue.value < thisPrediction.value) {
+                                    predictionUpdateObject.$set.status = "true"
+                                    predictionUpdateObject.$set.reason = "";
+                                }
+                                else if (thisPrediction.action == "stay above" && mostRecentValue.value <= thisPrediction.value) {
+                                    predictionUpdateObject.$set.status = "false"
+                                    predictionUpdateObject.$set.reason = "";
+                                }
+                                else if (thisPrediction.action == "stay below" && mostRecentValue.value >= thisPrediction.value) {
+                                    predictionUpdateObject.$set.status = "false"
+                                    predictionUpdateObject.$set.reason = "";
+                                }
 
-                    console.log(predictionCheckResult.status);
-                    if (predictionCheckResult.status != "active") {
-                        db.collection('predictions').updateOne(
-                          { _id: activePrediction._id },
-                          predictionUpdateObject, 
-                          function (err, results) {
-                              //console.log(results);
-                          });
+                                // if the prediction is still found to be valid, then check if it lapsed (end time has passed)
+                                if (predictionUpdateObject.$set.status == "active") {
+                                    var currentTime = Math.floor(new Date().getTime() / 1000);
+                                    if (thisPrediction.end <= currentTime) {
+                                        // predicition was to stay above or below during the time interval 
+                                        // (which it did because it statyed valid until the end time)
+                                        if (thisPrediction.action == "stay above" || thisPrediction.action == "stay below") {
+                                            predictionUpdateObject.$set.status = "true";
+                                            predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " ";
+                                            predictionUpdateObject.$set += (thisPrediction.action == "stay above") ? "stayed above" : "stayed below";
+                                            predictionUpdateObject.$set += " $" + thisPrediction.value.toString();
+                                        }
+                                            // predicition was to rise above/below a certain value (which it did NOT because the end time 
+                                            // has been reached and the prediction status has still not been declared true)
+                                        else {
+                                            predictionUpdateObject.$set.status = "false";
+                                            predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " never ";
+                                            predictionUpdateObject.$set.reason += (thisPrediction.action == "reach above") ? "rose above" : "sunk below";
+                                            predictionUpdateObject.$set.reason += " $" + thisPrediction.value.toString();
+                                        }
+                                    }
+                                }
+
+                                // update the prediction if it's status was found to have changed from active
+                                if (predictionUpdateObject.$set.status != "active") {
+                                    db.collection('predictions').updateOne(
+                                      { _id: thisPrediction._id },
+                                      predictionUpdateObject,
+                                      function (err, results) {});
+                                }
+                            }
+                        }
                     }
                 });
             }
