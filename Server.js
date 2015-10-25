@@ -99,10 +99,10 @@ var getHistoricalData = function(symbolsToGet, day, month, year) {
                 valueDocument.time = 
                     (new Date(valueDocument.year, valueDocument.month, valueDocument.day)).getTime()/1000;
                 // set the value doc's values
-                valueDocument.open = parseFloat(thisQuote.Open).toFixed(2);
-                valueDocument.close = parseFloat(thisQuote.Close).toFixed(2);
-                valueDocument.low = parseFloat(thisQuote.Low).toFixed(2);
-                valueDocument.high = parseFloat(thisQuote.High).toFixed(2);
+                valueDocument.open = parseFloat(parseFloat(thisQuote.Open).toFixed(2));
+                valueDocument.close = parseFloat(parseFloat(thisQuote.Close).toFixed(2));
+                valueDocument.low = parseFloat(parseFloat(thisQuote.Low).toFixed(2));
+                valueDocument.high = parseFloat((parseFloat(thisQuote.High).toFixed(2)));
                 valueDocument.volume = parseInt(thisQuote.Volume)
                 // add the new value document to the new price documents array
                 newPriceDocuments.push(valueDocument);
@@ -114,10 +114,6 @@ var getHistoricalData = function(symbolsToGet, day, month, year) {
             historicalValuesCollection.insert(newPriceDocuments, 
                 function (errValuesInsert, resultValuesInsert) {
             });
-
-            /*recentValuesCollection.insert(newPriceDocuments, 
-                function (errRecentValuesInsert, resultRecentValuesInsert) {
-            });*/
         }
     });
 };
