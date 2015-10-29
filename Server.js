@@ -23,6 +23,8 @@ mongoClient.connect(mongoUrl, function (error, database) {
         checkActivePredictions();
     }, 5000);*/
     //getHistoricalData(["AAPL", "GOOG"]);
+
+    checkActivePredictions(); // testing check predictions
 });
 
 // configuring express to use body-parser as middle-ware.
@@ -54,14 +56,13 @@ schedule.scheduleJob('0 */5 * * * *', function() {
   * Grab the historical data for the day before every day at 12:13am
   * Every day at 12:13am record the day's high/low for each of the stocks in the historicalValues collection.
   */
-schedule.scheduleJob('0 13 0 * * *', function () {
+schedule.scheduleJob('0 35 1 * * *', function () {
     // get the day, month, and year of yesterday
     var yesterdayDate = new Date();
     yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
     var yesterdayYear = yesterdayDate.getFullYear();
     var yesterdayMonth = yesterdayDate.getMonth();
     var yesterdayDay = yesterdayDate.getDate();
-
     // populate the historical data table in chunks of 100 stocks (every 10 seconds)
     for(var queryIndex = 0; queryIndex <= Math.floor((symbols.length-1)/100); queryIndex++) {
         // delay the query in order to create even distribution of queries over the entire minute period
@@ -166,12 +167,11 @@ var grabAndInsertNewStockValues = function (symbolsToGet) {
                 // remove all values from the recentValues collection that match symbols about to be inserted
                 var recentValuesCollection = db.collection('recentValues');
                 recentValuesCollection.deleteMany(
-                    {object: {$in: symbols}},
+                    {object: {$in: symbolsToGet}},
                     function (errRecentValuesRemove, resultRecentValuesRemove) {
                         // insert all of the new values in the recentValues collection (should replace all one's that were jsut removed)
                         recentValuesCollection.insert(newPriceDocuments, 
                             function (errRecentValuesInsert, resultRecentValuesInsert) {
-                            /* done! */ 
                         });
                     });
             });
@@ -197,17 +197,19 @@ var checkActivePredictions = function () {
                         // create an object that maps each stock name to its index in recentValues
                         var symbolsIndicies = {};
                         for (var recentValueIndex = 0; recentValueIndex < recentValues.length; recentValueIndex++) {
-                            if (typeof (recentValues.object) != "undefined") {
-                                symbolsIndicies[recentValues.object] = recentValueIndex;
+                            if (typeof (recentValues[recentValueIndex].object) != "undefined") {
+                                symbolsIndicies[recentValues[recentValueIndex].object] = recentValueIndex;
                             }
                         }
-
                    
                         for (var predictionIndex = 0; predictionIndex < activePredictions.length; predictionIndex++) {
                             var thisPrediction = activePredictions[predictionIndex]
                             if (symbolsIndicies.hasOwnProperty(thisPrediction.object)) {
                                 // grab this prediction's object's most recent value
                                 var mostRecentValue = recentValues[symbolsIndicies[thisPrediction.object]];
+
+                                //USE for further DEBUGGING!!
+                                //console.log("checking " + thisPrediction.object + " at val: " + mostRecentValue.value.toString());
 
                                 // the object that will be used to update the prediction
                                 // (assuming it's status has found to have changed from active)
