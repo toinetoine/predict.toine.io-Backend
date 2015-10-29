@@ -59,7 +59,7 @@ schedule.scheduleJob('0 13 0 * * *', function () {
     var yesterdayDate = new Date();
     yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
     var yesterdayYear = yesterdayDate.getFullYear();
-    var yesterdayMonth = yesterdayDate.getMonth() + 1;
+    var yesterdayMonth = yesterdayDate.getMonth();
     var yesterdayDay = yesterdayDate.getDate();
 
     // populate the historical data table in chunks of 100 stocks (every 10 seconds)
@@ -68,7 +68,6 @@ schedule.scheduleJob('0 13 0 * * *', function () {
         // (send a query every 2 seconds)
         setTimeout(function (symbolsToGrabHistoricalValuesFor, day, month, year) {
             return function () {
-                console.log("here");
                 getHistoricalData(symbolsToGrabHistoricalValuesFor, day, month, year);
             }
         }(symbols.slice(queryIndex * 100, (queryIndex + 1) * 100), yesterdayDay, yesterdayMonth, yesterdayYear),
@@ -81,10 +80,14 @@ var getHistoricalData = function(symbolsToGet, day, month, year) {
         year.toString() + "-" + month.toString() + "-" + day.toString() + "' and endDate = '" +
         year.toString() + "-" + month.toString() + "-" + day.toString() + "'";
     var queryYQL = new YQL(queryString);
-    
     // execute the query to retreive the historical values from the day
     queryYQL.exec(function (err, data) {
-        if (!mongoError && data != null && data.hasOwnProperty("query") && data.query.hasOwnProperty("results")) {
+        if (!mongoError && data != null && 
+            data.hasOwnProperty("query") && 
+            data.query.hasOwnProperty("results") && 
+            data.query.results != null && 
+            data.query.results.hasOwnProperty("quote") && 
+            data.query.results.quote != null) {
             var newPriceDocuments = Array();
             for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
                 var thisQuote = data.query.results.quote[resultIndex];
@@ -103,14 +106,13 @@ var getHistoricalData = function(symbolsToGet, day, month, year) {
                 valueDocument.close = parseFloat(parseFloat(thisQuote.Close).toFixed(2));
                 valueDocument.low = parseFloat(parseFloat(thisQuote.Low).toFixed(2));
                 valueDocument.high = parseFloat((parseFloat(thisQuote.High).toFixed(2)));
-                valueDocument.volume = parseInt(thisQuote.Volume)
+                valueDocument.volume = parseInt(thisQuote.Volume);
                 // add the new value document to the new price documents array
                 newPriceDocuments.push(valueDocument);
             }
 
             // insert the new historical values into the historical values collection
             var historicalValuesCollection = db.collection('historicalValues');
-            console.log(newPriceDocuments);
             historicalValuesCollection.insert(newPriceDocuments, 
                 function (errValuesInsert, resultValuesInsert) {
             });
@@ -132,9 +134,7 @@ schedule.scheduleJob('0 08 * * * *', function() {
         // remove all prices recorded before 25 hours ago.
         valuesCollection.deleteMany(
             { time: {$lte: twentyFiveHoursAgoTime} },
-            function (err, result) {
-                console.log(twentyFiveHoursAgoTime);
-            }
+            function (err, result) { }
         );
     }
 });
