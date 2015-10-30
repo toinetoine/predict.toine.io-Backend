@@ -169,7 +169,7 @@ var grabAndInsertNewStockValues = function (symbolsToGet) {
                 var priceDocument = {};
                 priceDocument.object = thisQuote.Symbol;
                 priceDocument.type = "stock";
-                priceDocument.value = thisQuote.LastTradePriceOnly;
+                priceDocument.value = praseFloat(thisQuote.LastTradePriceOnly);
                 priceDocument.time = currentTime;
                 newPriceDocuments.push(priceDocument);
             }
@@ -213,7 +213,7 @@ var checkActivePredictions = function () {
                                 symbolsIndicies[recentValues[recentValueIndex].object] = recentValueIndex;
                             }
                         }
-                   
+                    
                         for (var predictionIndex = 0; predictionIndex < activePredictions.length; predictionIndex++) {
                             var thisPrediction = activePredictions[predictionIndex]
                             if (symbolsIndicies.hasOwnProperty(thisPrediction.object)) {
@@ -221,33 +221,50 @@ var checkActivePredictions = function () {
                                 var mostRecentValue = recentValues[symbolsIndicies[thisPrediction.object]];
 
                                 //USE for further DEBUGGING!!
-                                console.log("checking " + thisPrediction.object + " at val: " + mostRecentValue.value.toString());
+                                console.log("checking " + thisPrediction.object + " with action: " + thisPrediction.action + " " + thisPrediction.value.toString() + " at val: " + mostRecentValue.value.toString());
 
                                 // the object that will be used to update the prediction
                                 // (assuming it's status has found to have changed from active)
                                 var predictionUpdateObject = {};
                                 predictionUpdateObject.$set = {};
 
-                                // go through each of the possible cases that could cause prediction to fail
-                                if (thisPrediction.action == "reach above" && mostRecentValue.value > thisPrediction.value) {
-                                    predictionUpdateObject.$set.status = "true"
-                                    predictionUpdateObject.$set.reason = "";
-                                }
-                                else if (thisPrediction.action == "sink below" && mostRecentValue.value < thisPrediction.value) {
-                                    predictionUpdateObject.$set.status = "true"
-                                    predictionUpdateObject.$set.reason = "";
-                                }
-                                else if (thisPrediction.action == "stay above" && mostRecentValue.value <= thisPrediction.value) {
-                                    predictionUpdateObject.$set.status = "false"
-                                    predictionUpdateObject.$set.reason = "";
-                                }
-                                else if (thisPrediction.action == "stay below" && mostRecentValue.value >= thisPrediction.value) {
-                                    predictionUpdateObject.$set.status = "false"
-                                    predictionUpdateObject.$set.reason = "";
+                                // if haven't reached the prediction end time yet, then check if it's still active
+                                if(mostRecentValue.time < thisPrediction.end) {
+                                    // go through each of the possible cases that could cause prediction to fail
+                                    if (thisPrediction.action == "reach above" && mostRecentValue.value > thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = true;
+                                        predictionUpdateObject.$set.reason = "";
+                                        console.log("h1");
+                                    }
+                                    else if (thisPrediction.action == "sink below" && mostRecentValue.value < thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = true;
+                                        predictionUpdateObject.$set.reason = "";
+                                        console.log("h2");
+                                    }
+                                    else if (thisPrediction.action == "stay above" && parseFloat(mostRecentValue.value) <= thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = false;
+                                        predictionUpdateObject.$set.reason = "The price of ";
+                                        console.log("h3");
+                                    }
+                                    else if (thisPrediction.action == "stay below" && mostRecentValue.value >= thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = false;
+                                        
+                                        console.log("h4");
+                                    }
+
+                                    if(predictionUpdateObject.$set.status != "active") {
+                                        var mostRecentValueDate = new Date(0);
+                                        mostRecentValueDate.setSeconds(mostRecentValue.time);
+
+                                        predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " ";
+                                        predictionUpdateObject.$set.reason += (predictionUpdateObject.$set.status == "true") ? "successfully " : "failed to ";
+                                        predictionUpdateObject.$set.reason += thisPrediction.action + " $" + thisPrediction.value.toString() + " by the end time of the prediction.";
+                                        predictionUpdateObject.$set.reason += " The value at " +  getHumanReadableTime(mostRecentValueDate) + " on " + mostRecentValueDate.toLocaleDateString();
+                                    }
                                 }
 
-                                // if the prediction is still found to be valid, then check if it lapsed (end time has passed)
-                                if (predictionUpdateObject.$set.status == "active") {
+                                // the prediction end time has been reached, check if it was true or failed
+                                else {
                                     var currentTime = Math.floor(new Date().getTime() / 1000);
                                     if (thisPrediction.end <= currentTime) {
                                         // predicition was to stay above or below during the time interval 
@@ -255,11 +272,11 @@ var checkActivePredictions = function () {
                                         if (thisPrediction.action == "stay above" || thisPrediction.action == "stay below") {
                                             predictionUpdateObject.$set.status = "true";
                                             predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " ";
-                                            predictionUpdateObject.$set += (thisPrediction.action == "stay above") ? "stayed above" : "stayed below";
-                                            predictionUpdateObject.$set += " $" + thisPrediction.value.toString();
+                                            predictionUpdateObject.$set.reason += (thisPrediction.action == "stay above") ? "stayed above" : "stayed below";
+                                            predictionUpdateObject.$set.reason += " $" + thisPrediction.value.toString();
                                         }
-                                            // predicition was to rise above/below a certain value (which it did NOT because the end time 
-                                            // has been reached and the prediction status has still not been declared true)
+                                        // predicition was to rise above/below a certain value (which it did NOT because the end time 
+                                        // has been reached and the prediction status has still not been declared true)
                                         else {
                                             predictionUpdateObject.$set.status = "false";
                                             predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " never ";
@@ -283,6 +300,16 @@ var checkActivePredictions = function () {
             }
         });
     }
+}
+
+var getHumanReadableTime = function(dateToGetTimeOf) {
+    var hours = dateToGetTimeOf.getHours();
+    var minutes = dateToGetTimeOf.getMinutes();
+    var minutesString = (minutes < 10) ? "0" : "";
+    minutesString += minutes.toString();
+    var hoursString = ((hours % 12) > 0) ? (hours % 12).toString() : "12";
+    var timePostfix = (hours < 12) ? "am" : "pm";
+    return hoursString + ":" + minutesString + timePostfix;
 }
 
 /**
