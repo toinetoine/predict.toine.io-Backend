@@ -25,6 +25,13 @@ mongoClient.connect(mongoUrl, function (error, database) {
     //getHistoricalData(["AAPL", "GOOG"]);
 
     checkActivePredictions(); // testing check predictions
+
+    /*var yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
+    var yesterdayYear = yesterdayDate.getFullYear();
+    var yesterdayMonth = yesterdayDate.getMonth();
+    var yesterdayDay = yesterdayDate.getDate();
+    getHistoricalData(symbols, yesterdayDay, yesterdayMonth, yesterdayYear);*/
 });
 
 // configuring express to use body-parser as middle-ware.
@@ -56,7 +63,7 @@ schedule.scheduleJob('0 */5 * * * *', function() {
   * Grab the historical data for the day before every day at 12:13am
   * Every day at 12:13am record the day's high/low for each of the stocks in the historicalValues collection.
   */
-schedule.scheduleJob('0 35 1 * * *', function () {
+schedule.scheduleJob('0 13 0 * * *', function () {
     // get the day, month, and year of yesterday
     var yesterdayDate = new Date();
     yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
@@ -76,10 +83,12 @@ schedule.scheduleJob('0 35 1 * * *', function () {
     }
 });
 
-var getHistoricalData = function(symbolsToGet, day, month, year) {
+var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
+    var monthNumber = monthIndex + 1; // human readable month number always monthIndex + 1 (1-12 not 0-11)
     var queryString = "select * from yahoo.finance.historicaldata where symbol in ('" + symbolsToGet.join("','") + "') and startDate = '" +
-        year.toString() + "-" + month.toString() + "-" + day.toString() + "' and endDate = '" +
-        year.toString() + "-" + month.toString() + "-" + day.toString() + "'";
+        year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "' and endDate = '" +
+        year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "'";
+    console.log(queryString);
     var queryYQL = new YQL(queryString);
     // execute the query to retreive the historical values from the day
     queryYQL.exec(function (err, data) {
@@ -97,11 +106,11 @@ var getHistoricalData = function(symbolsToGet, day, month, year) {
                 valueDocument.object = thisQuote.Symbol;
                 valueDocument.type = "stock";
                 // set the value doc's times
-                valueDocument.year = parseInt(thisQuote.Date.split("-")[0]);
-                valueDocument.month = parseInt(thisQuote.Date.split("-")[1]);
-                valueDocument.day = parseInt(thisQuote.Date.split("-")[2]);
+                valueDocument.year = year; //parseInt(thisQuote.Date.split("-")[0]);
+                valueDocument.month = monthNumber; // parseInt(thisQuote.Date.split("-")[1]);
+                valueDocument.day = day; //parseInt(thisQuote.Date.split("-")[2]);
                 valueDocument.time = 
-                    (new Date(valueDocument.year, valueDocument.month, valueDocument.day)).getTime()/1000;
+                    (new Date(year, monthIndex, day)).getTime()/1000;
                 // set the value doc's values
                 valueDocument.open = parseFloat(parseFloat(thisQuote.Open).toFixed(2));
                 valueDocument.close = parseFloat(parseFloat(thisQuote.Close).toFixed(2));
@@ -109,13 +118,16 @@ var getHistoricalData = function(symbolsToGet, day, month, year) {
                 valueDocument.high = parseFloat((parseFloat(thisQuote.High).toFixed(2)));
                 valueDocument.volume = parseInt(thisQuote.Volume);
                 // add the new value document to the new price documents array
+                console.log(valueDocument);
                 newPriceDocuments.push(valueDocument);
+                console.log("pushed" + valueDocument.day.toString() + " " + valueDocument.month.toString());
             }
 
             // insert the new historical values into the historical values collection
             var historicalValuesCollection = db.collection('historicalValues');
             historicalValuesCollection.insert(newPriceDocuments, 
                 function (errValuesInsert, resultValuesInsert) {
+                    console.log(resultValuesInsert);
             });
         }
     });
@@ -209,7 +221,7 @@ var checkActivePredictions = function () {
                                 var mostRecentValue = recentValues[symbolsIndicies[thisPrediction.object]];
 
                                 //USE for further DEBUGGING!!
-                                //console.log("checking " + thisPrediction.object + " at val: " + mostRecentValue.value.toString());
+                                console.log("checking " + thisPrediction.object + " at val: " + mostRecentValue.value.toString());
 
                                 // the object that will be used to update the prediction
                                 // (assuming it's status has found to have changed from active)
