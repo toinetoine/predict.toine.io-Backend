@@ -18,13 +18,14 @@ mongoClient.connect(mongoUrl, function (error, database) {
     db = database;
     mongoError = error;
     console.log("starting....");
-    /*grabAndInsertNewStockValues(["MMM", "ABT", "ABBV", "ACN", "ACE", "ATVI", "ADBE", "ADT", "AAP", "AES", "AET", "AFL", "AMG"]);
-    setTimeout(function() {
+    checkActivePredictions();
+    //grabAndInsertNewStockValues(["MMM", "ABT", "ABBV", "ACN", "ACE", "ATVI", "ADBE", "ADT", "AAP", "AES", "AET", "AFL", "AMG"]);
+    /*setTimeout(function() {
         checkActivePredictions();
     }, 5000);*/
     //getHistoricalData(["AAPL", "GOOG"]);
 
-    checkActivePredictions(); // testing check predictions
+    //checkActivePredictions(); // testing check predictions
 
     /*var yesterdayDate = new Date();
     yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
@@ -169,7 +170,7 @@ var grabAndInsertNewStockValues = function (symbolsToGet) {
                 var priceDocument = {};
                 priceDocument.object = thisQuote.Symbol;
                 priceDocument.type = "stock";
-                priceDocument.value = praseFloat(thisQuote.LastTradePriceOnly);
+                priceDocument.value = parseFloat(thisQuote.LastTradePriceOnly);
                 priceDocument.time = currentTime;
                 newPriceDocuments.push(priceDocument);
             }
@@ -218,10 +219,10 @@ var checkActivePredictions = function () {
                             var thisPrediction = activePredictions[predictionIndex]
                             if (symbolsIndicies.hasOwnProperty(thisPrediction.object)) {
                                 // grab this prediction's object's most recent value
-                                var mostRecentValue = recentValues[symbolsIndicies[thisPrediction.object]];
+                                var mostRecentValueDocument = recentValues[symbolsIndicies[thisPrediction.object]];
 
                                 //USE for further DEBUGGING!!
-                                console.log("checking " + thisPrediction.object + " with action: " + thisPrediction.action + " " + thisPrediction.value.toString() + " at val: " + mostRecentValue.value.toString());
+                                console.log("checking " + thisPrediction.object + " with action: " + thisPrediction.action + " " + thisPrediction.value.toString() + " at val: " + mostRecentValueDocument.value.toString());
 
                                 // the object that will be used to update the prediction
                                 // (assuming it's status has found to have changed from active)
@@ -229,41 +230,31 @@ var checkActivePredictions = function () {
                                 predictionUpdateObject.$set = {};
 
                                 // if haven't reached the prediction end time yet, then check if it's still active
-                                if(mostRecentValue.time < thisPrediction.end) {
+                                if(mostRecentValueDocument.time < thisPrediction.end) {
                                     // go through each of the possible cases that could cause prediction to fail
-                                    if (thisPrediction.action == "reach above" && mostRecentValue.value > thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = true;
-                                        predictionUpdateObject.$set.reason = "";
-                                        console.log("h1");
+                                    if (thisPrediction.action == "reach above" && mostRecentValueDocument.value > thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = "true";
                                     }
-                                    else if (thisPrediction.action == "sink below" && mostRecentValue.value < thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = true;
-                                        predictionUpdateObject.$set.reason = "";
-                                        console.log("h2");
+                                    else if (thisPrediction.action == "sink below" && mostRecentValueDocument.value < thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = "true";
                                     }
-                                    else if (thisPrediction.action == "stay above" && parseFloat(mostRecentValue.value) <= thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = false;
-                                        predictionUpdateObject.$set.reason = "The price of ";
-                                        console.log("h3");
+                                    else if (thisPrediction.action == "stay above" && parseFloat(mostRecentValueDocument.value) <= thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = "false";
                                     }
-                                    else if (thisPrediction.action == "stay below" && mostRecentValue.value >= thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = false;
-                                        
-                                        console.log("h4");
+                                    else if (thisPrediction.action == "stay below" && mostRecentValueDocument.value >= thisPrediction.value) {
+                                        predictionUpdateObject.$set.status = "false";
                                     }
 
-                                    if(predictionUpdateObject.$set.status != "active") {
-                                        var mostRecentValueDate = new Date(0);
-                                        mostRecentValueDate.setSeconds(mostRecentValue.time);
-
-                                        predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " ";
-                                        predictionUpdateObject.$set.reason += (predictionUpdateObject.$set.status == "true") ? "successfully " : "failed to ";
-                                        predictionUpdateObject.$set.reason += thisPrediction.action + " $" + thisPrediction.value.toString() + " by the end time of the prediction.";
-                                        predictionUpdateObject.$set.reason += " The value at " +  getHumanReadableTime(mostRecentValueDate) + " on " + mostRecentValueDate.toLocaleDateString();
+                                    // if the prediciton's status has been changed and it's no longer active, then create the reason message
+                                    if(predictionUpdateObject.$set.hasOwnProperty("status") && predictionUpdateObject.$set.status != "active") {
+                                        predictionUpdateObject.$set.reason = 
+                                            getReasonMessage(thisPrediction, mostRecentValueDocument, predictionUpdateObject.$set.status == "true");
                                     }
                                 }
 
-                                // the prediction end time has been reached, check if it was true or failed
+                                // the prediction end time has been reached 
+                                // (the object's value in the recentValues collection is past the end time of the prediction) 
+                                // so check if it was true or failed
                                 else {
                                     var currentTime = Math.floor(new Date().getTime() / 1000);
                                     if (thisPrediction.end <= currentTime) {
@@ -271,17 +262,15 @@ var checkActivePredictions = function () {
                                         // (which it did because it statyed valid until the end time)
                                         if (thisPrediction.action == "stay above" || thisPrediction.action == "stay below") {
                                             predictionUpdateObject.$set.status = "true";
-                                            predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " ";
-                                            predictionUpdateObject.$set.reason += (thisPrediction.action == "stay above") ? "stayed above" : "stayed below";
-                                            predictionUpdateObject.$set.reason += " $" + thisPrediction.value.toString();
+                                            predictionUpdateObject.$set.reason = 
+                                                getReasonMessage(thisPrediction, mostRecentValueDocument, true);
                                         }
                                         // predicition was to rise above/below a certain value (which it did NOT because the end time 
                                         // has been reached and the prediction status has still not been declared true)
                                         else {
                                             predictionUpdateObject.$set.status = "false";
-                                            predictionUpdateObject.$set.reason = "The price of " + thisPrediction.object + " never ";
-                                            predictionUpdateObject.$set.reason += (thisPrediction.action == "reach above") ? "rose above" : "sunk below";
-                                            predictionUpdateObject.$set.reason += " $" + thisPrediction.value.toString();
+                                            predictionUpdateObject.$set.reason = 
+                                                getReasonMessage(thisPrediction, mostRecentValueDocument, false);
                                         }
                                     }
                                 }
@@ -300,6 +289,20 @@ var checkActivePredictions = function () {
             }
         });
     }
+}
+
+var getReasonMessage = function(predictionDocument, mostRecentValueDocument, isPredictionSuccessful) {
+    var mostRecentValueDate = new Date(0);
+    mostRecentValueDate.setSeconds(mostRecentValueDocument.time);
+
+    var resonMessage = "The price of " + predictionDocument.object + " ";
+    resonMessage += (isPredictionSuccessful) ? "successfully " : "failed to ";
+    resonMessage += predictionDocument.action + " $" + predictionDocument.value.toString();
+    resonMessage += " by the end time of the prediction. The price was last checked at ";
+    resonMessage += getHumanReadableTime(mostRecentValueDate) + " on " + mostRecentValueDate.toLocaleDateString();
+    resonMessage += " when it was $" + mostRecentValueDocument.value.toString();
+
+    return resonMessage;
 }
 
 var getHumanReadableTime = function(dateToGetTimeOf) {
