@@ -22,10 +22,27 @@ mongoClient.connect(mongoUrl, function (error, database) {
     db = database;
     mongoError = error;
     console.log("starting....");
-    //checkActivePredictions();
-
-    sendEmailToPredictor("adahan93@gmail.com", "false", "Your prediction was whack partnah.");
+    checkActivePredictions();
 });
+
+/* Encryption tools */
+var crypto = require('crypto'),
+    algorithm = 'aes-256-ctr',
+    password = 'q9A7Xgls';
+
+function encrypt(text) {
+    var cipher = crypto.createCipher(algorithm, password)
+    var crypted = cipher.update(text, 'utf8', 'hex')
+    crypted += cipher.final('hex');
+    return crypted;
+}
+
+function decrypt(text) {
+    var decipher = crypto.createDecipher(algorithm, password)
+    var dec = decipher.update(text, 'hex', 'utf8')
+    dec += decipher.final('utf8');
+    return dec;
+}
 
 // configuring express to use body-parser as middle-ware.
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -81,7 +98,6 @@ var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
     var queryString = "select * from yahoo.finance.historicaldata where symbol in ('" + symbolsToGet.join("','") + "') and startDate = '" +
         year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "' and endDate = '" +
         year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "'";
-    console.log(queryString);
     var queryYQL = new YQL(queryString);
     // execute the query to retreive the historical values from the day
     queryYQL.exec(function (err, data) {
@@ -111,16 +127,13 @@ var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
                 valueDocument.high = parseFloat((parseFloat(thisQuote.High).toFixed(2)));
                 valueDocument.volume = parseInt(thisQuote.Volume);
                 // add the new value document to the new price documents array
-                console.log(valueDocument);
                 newPriceDocuments.push(valueDocument);
-                console.log("pushed" + valueDocument.day.toString() + " " + valueDocument.month.toString());
             }
 
             // insert the new historical values into the historical values collection
             var historicalValuesCollection = db.collection('historicalValues');
             historicalValuesCollection.insert(newPriceDocuments, 
                 function (errValuesInsert, resultValuesInsert) {
-                    console.log(resultValuesInsert);
             });
         }
     });
@@ -265,17 +278,14 @@ var checkActivePredictions = function () {
                                 }
 
                                 // update the prediction if it's status was found to have changed from active
-                                if (predictionUpdateObject.$set.status != "active") {
+                                if (typeof(predictionUpdateObject.$set.status) != "undefined" && 
+                                    predictionUpdateObject.$set.status != "active") {
 
                                     // update prediction in the predictions collection
                                     db.collection('predictions').updateOne(
                                       { _id: thisPrediction._id },
                                       predictionUpdateObject,
                                       function (err, results) {});
-
-                                    // send email notifying the predictor of the change in status
-                                    sendEmailToPredictor(predictionUpdateObject.$set.status,
-                                        predictionUpdateObject.$set.reason);
                                 }
                             }
                         }
@@ -293,7 +303,7 @@ var sendEmailToPredictor = function(predictorEmail, predictionStatus, prediction
         port: 465, // port for secure SMTP
         auth: {
             user: "predict@toine.io",
-            pass: ""
+            pass: "Money$$1993"
         }
     });
 
@@ -321,10 +331,8 @@ var sendEmailToPredictor = function(predictorEmail, predictionStatus, prediction
 
     // send mail with defined transport object
     smtpTransport.sendMail(mailOptions, function(error, response){
-        if(error){
+        if(error) {
             console.log(error);
-        }else{
-            console.log("Message sent: " + response.message);
         }
 
         // if you don't want to use this transport object anymore, uncomment following line
