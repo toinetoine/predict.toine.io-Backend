@@ -286,6 +286,12 @@ var checkActivePredictions = function () {
                                       { _id: thisPrediction._id },
                                       predictionUpdateObject,
                                       function (err, results) {});
+
+                                    // send email to the predictor informing 
+                                    // them of the status change
+                                    sendEmailToPredictor(decrypt(thisPrediction.predictor),
+                                        predictionUpdateObject.$set.status,
+                                        predictionUpdateObject.$set.reason);
                                 }
                             }
                         }
