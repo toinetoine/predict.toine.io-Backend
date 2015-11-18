@@ -291,7 +291,8 @@ var checkActivePredictions = function () {
                                     // them of the status change
                                     sendEmailToPredictor(decrypt(thisPrediction.predictor),
                                         predictionUpdateObject.$set.status,
-                                        predictionUpdateObject.$set.reason);
+                                        predictionUpdateObject.$set.reason,
+                                        thisPrediction._id);
                                 }
                             }
                         }
@@ -302,7 +303,7 @@ var checkActivePredictions = function () {
     }
 }
 
-var sendEmailToPredictor = function(predictorEmail, predictionStatus, predictionReason) {
+var sendEmailToPredictor = function(predictorEmail, predictionStatus, predictionReason, predictionId) {
     var smtpTransport = nodemailer.createTransport("SMTP",{
         host: "mail.gandi.net", // hostname
         secureConnection: true, // use SSL
@@ -323,7 +324,9 @@ var sendEmailToPredictor = function(predictorEmail, predictionStatus, prediction
     htmlEmail += "'>";
     htmlEmail += "<h1>Your prediction turned out to be " + predictionStatus + ".</h1>";
     htmlEmail += "<br/>";
-    htmlEmail += "<h3>" + predictionReason + "</h3>";
+    htmlEmail += "<h3>" + predictionReason + " Check the prediction " +
+        "<a href='http://predict.toine.io/prediction/" + predictionId.toString() + 
+        "'>here</a>.</h3>";
     htmlEmail += "</div>";
 
     // setup e-mail data with unicode symbols
@@ -352,10 +355,10 @@ var getReasonMessage = function(predictionDocument, mostRecentValueDocument, isP
 
     var resonMessage = "The price of " + predictionDocument.object + " ";
     resonMessage += (isPredictionSuccessful) ? "successfully " : "failed to ";
-    resonMessage += predictionDocument.action + " $" + predictionDocument.value.toString();
+    resonMessage += predictionDocument.action + " $" + predictionDocument.value.toFixed(2).toString();
     resonMessage += " by the end time of the prediction. The price was last checked at ";
     resonMessage += getHumanReadableTime(mostRecentValueDate) + " on " + mostRecentValueDate.toLocaleDateString();
-    resonMessage += " when it was $" + mostRecentValueDocument.value.toString();
+    resonMessage += " when it was $" + mostRecentValueDocument.value.toFixed(2).toString() + ".";
 
     return resonMessage;
 }
