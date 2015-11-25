@@ -354,7 +354,7 @@ var getReasonMessage = function(predictionDocument, mostRecentValueDocument, isP
     mostRecentValueDate.setSeconds(mostRecentValueDocument.time);
 
     var resonMessage = "The price of " + predictionDocument.object + " ";
-    resonMessage += (isPredictionSuccessful) ? "successfully " : "failed to ";
+    resonMessage += (isPredictionSuccessful) ? "did successfully " : "failed to ";
     resonMessage += predictionDocument.action + " $" + predictionDocument.value.toFixed(2).toString();
     resonMessage += " by the end time of the prediction. The price was last checked at ";
     resonMessage += getHumanReadableTime(mostRecentValueDate) + " on " + mostRecentValueDate.toLocaleDateString();
