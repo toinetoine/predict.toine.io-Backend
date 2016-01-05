@@ -310,7 +310,7 @@ var sendEmailToPredictor = function(predictorEmail, predictionStatus, prediction
         port: 465, // port for secure SMTP
         auth: {
             user: "predict@toine.io",
-            pass: "Money$$1993"
+            pass: "Predict$$123"
         }
     });
 
