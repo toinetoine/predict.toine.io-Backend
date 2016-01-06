@@ -161,8 +161,7 @@ schedule.scheduleJob('0 08 1,13 * * *', function() {
 /**
   * Every 12 hours (at 3am and 3pm) on the 8th minute, prune all prices older than 1 day (24 hours)
   */
-schedule.scheduleJob('0 13 3,21 * * *', function() {
-    console.log("this now!");
+schedule.scheduleJob('0 8 3,15 * * *', function() {
     // time now
     var oneDayAgoTime = Math.floor((new Date).getTime() / 1000);
     // time 25 hours ago
