@@ -140,19 +140,38 @@ var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
 };
 
 /**
-  * Every 1 hour on the 8th minute, wipe all of the prices that are older than 25 hours
-  * (every 0th minute)
+  * Every 12 hours (at 1am and 1pm) on the 8th minute, wipe all of 
+  * the prices that are either older than 7 days (168 hours)
   */
-schedule.scheduleJob('0 08 * * * *', function() {
+schedule.scheduleJob('0 08 1,13 * * *', function() {
     // time now
-    var twentyFiveHoursAgoTime = Math.floor((new Date).getTime() / 1000);
+    var oneWeekAgoTime = Math.floor((new Date).getTime() / 1000);
     // time 25 hours ago
-    twentyFiveHoursAgoTime -= (25*60*60);
+    oneWeekAgoTime -= (168*60*60);
     if (!mongoError) {
         var valuesCollection = db.collection('values');
         // remove all prices recorded before 25 hours ago.
         valuesCollection.deleteMany(
-            { time: {$lte: twentyFiveHoursAgoTime} },
+            { time: {$lt: oneWeekAgoTime} },
+            function (err, result) { }
+        );
+    }
+});
+
+/**
+  * Every 12 hours (at 3am and 3pm) on the 8th minute, prune all prices older than 1 day (24 hours)
+  */
+schedule.scheduleJob('0 13 3,21 * * *', function() {
+    console.log("this now!");
+    // time now
+    var oneDayAgoTime = Math.floor((new Date).getTime() / 1000);
+    // time 25 hours ago
+    oneDayAgoTime -= (24*60*60);
+    if (!mongoError) {
+        var valuesCollection = db.collection('values');
+        // remove all prices recorded before 25 hours ago.
+        valuesCollection.deleteMany(
+            { time: {$and: [{$lt: oneDayAgoTime}, {$not: {$mod: [15, 0]}} ] }   },
             function (err, result) { }
         );
     }
