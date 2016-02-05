@@ -22,7 +22,6 @@ mongoClient.connect(mongoUrl, function (error, database) {
     db = database;
     mongoError = error;
     console.log("starting....");
-    checkActivePredictions();
 });
 
 /* Encryption tools */
@@ -69,11 +68,113 @@ schedule.scheduleJob('0 */5 * * * *', function() {
     }
 });
 
+/** 
+  * Everyday Tues-Sat at 12:03am (day after weekday) record the day's open, close, high, low 
+  * using the data stored for that day
+  */
+schedule.scheduleJob('0 3 0 * * *', function () {
+
+    for(var symbolI = 0; symbolI <= Math.floor((symbols.length-1)/20); symbolI++) {
+        setTimeout(function (symbolsToGrab) {
+            return function () {
+                crunchYesterdayValues(symbolsToGrab);
+            }
+        }(symbols.slice(symbolI * 20, (symbolI + 1) * 20)),
+        symbolI * 10000);
+    }
+});
+
+var crunchYesterdayValues = function(symbolsToGrab) {
+
+    var yesterdayDate = new Date();
+    yesterdayDate.setDate((new Date()).getDate() - 1);
+
+    // get yesterday's date at 12:00:00:00am
+    var yesterdayMidnight = new Date(
+        yesterdayDate.getFullYear(),
+        yesterdayDate.getMonth(), 
+        yesterdayDate.getDate(), 
+        9, 0, 0, 0);
+
+    
+    if (!mongoError) {
+        var valuesCollection = db.collection('values');
+
+        for(var symbolI = 0; symbolI < symbolsToGrab.length; symbolI++)
+        {
+            // make time $gte to yesterday midnight and $lte to today midnight
+            var findValuesObject = {};
+            findValuesObject.time = {};
+            findValuesObject.time.$gte = yesterdayMidnight.getTime() / 1000;
+            findValuesObject.time.$lte = yesterdayMidnight.getTime() / 1000 + 24*60*60;
+            findValuesObject.type = "stock";
+            findValuesObject.object = symbolsToGrab[symbolI];
+
+            // grab all values from yesterday
+            valuesCollection.find(findValuesObject).toArray(function (err, values) {
+                var historicalObject = {};
+                historicalObject.object = values[0].object;
+                historicalObject.type = values[0].type;
+                historicalObject.year = yesterdayDate.getFullYear();
+                historicalObject.month = yesterdayDate.getMonth() + 1;
+                historicalObject.day = yesterdayDate.getDate();
+                historicalObject.time = Math.round(new Date().getTime() / 1000)
+
+
+                var sortedValues = values.sort(function(a, b) {
+                    return parseFloat(a.time) - parseFloat(b.time);
+                });
+
+
+                /** calculate open **/
+                // grab the fist different value from the days values
+                var sI = 1;
+                var fistVal = sortedValues[0].value;
+                while(sI < sortedValues.length)
+                {
+                    if(Math.abs(sortedValues[sI].value - fistVal) >= 0.01)
+                    {
+                        historicalObject.open = 
+                            Math.round(sortedValues[sI].value * 100) / 100;
+                        break;
+                    }
+
+                    sI++;
+                }
+
+                // if the values aren't all the same -> then get close, low, and high
+                if('open' in historicalObject)
+                {
+                    /** calculate close **/
+                    historicalObject.close = 
+                        sortedValues[sortedValues.length - 1].value;
+
+
+                        /** calculate high **/
+                    historicalObject.high = 
+                        Math.max.apply(Math,values.map(function(o){return o.value;}));
+
+
+                        /** calculate low **/
+                    historicalObject.low = 
+                        Math.min.apply(Math,values.map(function(o){return o.value;}));
+
+                    // insert the historical object to the historicalValues collection
+                    var historicalValuesCollection = db.collection('historicalValues');
+                    historicalValuesCollection.insertOne(historicalObject, 
+                        function (errValuesInsert, resultValuesInsert) {
+                    });
+                }
+            });
+        }
+    }
+}
+
 /**
   * Grab the historical data for the day before every day at 12:13am
   * Every day at 12:13am record the day's high/low for each of the stocks in the historicalValues collection.
   */
-schedule.scheduleJob('0 13 0 * * *', function () {
+/*schedule.scheduleJob('0 13 0 * * *', function () {
     // get the day, month, and year of yesterday
     var yesterdayDate = new Date();
     yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
@@ -91,22 +192,32 @@ schedule.scheduleJob('0 13 0 * * *', function () {
         }(symbols.slice(queryIndex * 100, (queryIndex + 1) * 100), yesterdayDay, yesterdayMonth, yesterdayYear),
         queryIndex * 10000); // stagger find-and-store prices opertation each by 10 seconds
     }
-});
 
-var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
+});*/
+
+/*var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
     var monthNumber = monthIndex + 1; // human readable month number always monthIndex + 1 (1-12 not 0-11)
     var queryString = "select * from yahoo.finance.historicaldata where symbol in ('" + symbolsToGet.join("','") + "') and startDate = '" +
         year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "' and endDate = '" +
         year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "'";
-    var queryYQL = new YQL(queryString);
+
+    console.log(queryString);
+    var queryYQL = new YQL(queryString, 
+        { env: 'store://datatables.org/alltableswithkeys' });
+    //queryYQL.setOptions({
+    //    env: 'store://datatables.org/alltableswithkeys'
+    //});
+
     // execute the query to retreive the historical values from the day
     queryYQL.exec(function (err, data) {
+        console.log(data);
         if (!mongoError && data != null && 
             data.hasOwnProperty("query") && 
             data.query.hasOwnProperty("results") && 
             data.query.results != null && 
             data.query.results.hasOwnProperty("quote") && 
             data.query.results.quote != null) {
+            console.log("here2");
             var newPriceDocuments = Array();
             for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
                 var thisQuote = data.query.results.quote[resultIndex];
@@ -126,6 +237,7 @@ var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
                 valueDocument.low = parseFloat(parseFloat(thisQuote.Low).toFixed(2));
                 valueDocument.high = parseFloat((parseFloat(thisQuote.High).toFixed(2)));
                 valueDocument.volume = parseInt(thisQuote.Volume);
+                console.log(valueDocument);
                 // add the new value document to the new price documents array
                 newPriceDocuments.push(valueDocument);
             }
@@ -137,7 +249,7 @@ var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
             });
         }
     });
-};
+};*/
 
 /**
   * Every 12 hours (at 1am and 1pm) on the 8th minute, wipe all of 
@@ -159,7 +271,8 @@ schedule.scheduleJob('0 08 1,13 * * *', function() {
 });
 
 /**
-  * Every 12 hours (at 3am and 3pm) on the 8th minute, prune all prices older than 1 day (24 hours)
+  * Every 12 hours (at 3am and 3pm) on the 8th minute, prune all prices older than 1 day (24 hours) 
+  * except those on 15 min intervals
   */
 schedule.scheduleJob('0 8 3,15 * * *', function() {
     // time now
