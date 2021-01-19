@@ -1,534 +1,177 @@
 var express = require("express");
-var app     = express();
-var bodyParser = require("body-parser");
-var YQL = require('yql');
+const app = express();
+const config = require('config');
+const assert = require('assert');
+const dateFormat = require("dateformat");
+const got = require('got');
+const mongoose = require('mongoose');
+const schedule = require('node-schedule');
+const chalk = require('chalk');
+const cheerio = require('cheerio');
+const request = require('request');
 
-var mongodb = require('mongodb');
-var mongoClient = mongodb.MongoClient;
-var mongoUrl = 'mongodb://localhost:27017/predict';
+let Ticker = require('./models/ticker');
+let Range = require('./models/range');
 
-var schedule = require('node-schedule');
+var mongoClient;
+const mongoConfig = config.get('mongo');
+const polygonConfig = config.get('polygon');
 
-var nodemailer = require('nodemailer');
-var smtpTransport = require('nodemailer-smtp-transport');
+console.log('Running with configuration: ', config);
 
-
-// symbols in the S&P500
-var symbols = ["MMM", "ABT", "ABBV", "ACN", "ACE", "ATVI", "ADBE", "ADT", "AAP", "AES", "AET", "AFL", "AMG", "A", "GAS", "APD", "ARG", "AKAM", "AA", "AGN", "ALXN", "ALLE", "ADS", "ALL", "GOOGL", "GOOG", "ALTR", "MO", "AMZN", "AEE", "AAL", "AEP", "AXP", "AIG", "AMT", "AMP", "ABC", "AME", "AMGN", "APH", "APC", "ADI", "AON", "APA", "AIV", "AAPL", "AMAT", "ADM", "AIZ", "T", "ADSK", "ADP", "AN", "AZO", "AVGO", "AVB", "AVY", "BHI", "BLL", "BAC", "BK", "BCR", "BXLT", "BAX", "BBT", "BDX", "BBBY", "BRK-B", "BBY", "BIIB", "BLK", "HRB", "BA", "BWA", "BXP", "BSX", "BMY", "BRCM", "BF-B", "CHRW", "CA", "CVC", "COG", "CAM", "CPB", "COF", "CAH", "HSIC", "KMX", "CCL", "CAT", "CBG", "CBS", "CELG", "CNP", "CTL", "CERN", "CF", "SCHW", "CHK", "CVX", "CMG", "CB", "CI", "XEC", "CINF", "CTAS", "CSCO", "C", "CTXS", "CLX", "CME", "CMS", "COH", "KO", "CCE", "CTSH", "CL", "CPGX", "CMCSA", "CMCSK", "CMA", "CSC", "CAG", "COP", "CNX", "ED", "STZ", "GLW", "COST", "CCI", "CSX", "CMI", "CVS", "DHI", "DHR", "DRI", "DVA", "DE", "DLPH", "DAL", "XRAY", "DVN", "DO", "DFS", "DISCA", "DISCK", "DG", "DLTR", "D", "DOV", "DOW", "DPS", "DTE", "DD", "DUK", "DNB", "ETFC", "EMN", "ETN", "EBAY", "ECL", "EIX", "EW", "EA", "EMC", "EMR", "ENDP", "ESV", "ETR", "EOG", "EQT", "EFX", "EQIX", "EQR", "ESS", "EL", "ES", "EXC", "EXPE", "EXPD", "ESRX", "XOM", "FFIV", "FB", "FAST", "FDX", "FIS", "FITB", "FSLR", "FE", "FISV", "FLIR", "FLS", "FLR", "FMC", "FTI", "F", "FOSL", "BEN", "FCX", "FTR", "GME", "GPS", "GRMN", "GD", "GE", "GGP", "GIS", "GM", "GPC", "GNW", "GILD", "GS", "GT", "GWW", "HAL", "HBI", "HOG", "HAR", "HRS", "HIG", "HAS", "HCA", "HCP", "HP", "HES", "HPQ", "HD", "HON", "HRL", "HST", "HCBK", "HUM", "HBAN", "ITW", "IR", "INTC", "ICE", "IBM", "IP", "IPG", "IFF", "INTU", "ISRG", "IVZ", "IRM", "JEC", "JBHT", "JNJ", "JCI", "JPM", "JNPR", "KSU", "K", "KEY", "GMCR", "KMB", "KIM", "KMI", "KLAC", "KSS", "KHC", "KR", "LB", "LLL", "LH", "LRCX", "LM", "LEG", "LEN", "LVLT", "LUK", "LLY", "LNC", "LLTC", "LMT", "L", "LOW", "LYB", "MTB", "MAC", "M", "MNK", "MRO", "MPC", "MAR", "MMC", "MLM", "MAS", "MA", "MAT", "MKC", "MCD", "MHFI", "MCK", "MJN", "WRK", "MDT", "MRK", "MET", "KORS", "MCHP", "MU", "MSFT", "MHK", "TAP", "MDLZ", "MON", "MNST", "MCO", "MS", "MOS", "MSI", "MUR", "MYL", "NDAQ", "NOV", "NAVI", "NTAP", "NFLX", "NWL", "NFX", "NEM", "NWSA", "NWS", "NEE", "NLSN", "NKE", "NI", "NBL", "JWN", "NSC", "NTRS", "NOC", "NRG", "NUE", "NVDA", "ORLY", "OXY", "OMC", "OKE", "ORCL", "OI", "PCAR", "PH", "PDCO", "PAYX", "PYPL", "PNR", "PBCT", "POM", "PEP", "PKI", "PRGO", "PFE", "PCG", "PM", "PSX", "PNW", "PXD", "PBI", "PCL", "PNC", "RL", "PPG", "PPL", "PX", "PCP", "PCLN", "PFG", "PG", "PGR", "PLD", "PRU", "PEG", "PSA", "PHM", "PVH", "QRVO", "PWR", "QCOM", "DGX", "RRC", "RTN", "O", "RHT", "REGN", "RF", "RSG", "RAI", "RHI", "ROK", "COL", "ROP", "ROST", "RCL", "R", "CRM", "SNDK", "SCG", "SLB", "SNI", "STX", "SEE", "SRE", "SHW", "SIAL", "SIG", "SPG", "SWKS", "SLG", "SJM", "SNA", "SO", "LUV", "SWN", "SE", "STJ", "SWK", "SPLS", "SBUX", "HOT", "STT", "SRCL", "SYK", "STI", "SYMC", "SYY", "TROW", "TGT", "TEL", "TE", "TGNA", "THC", "TDC", "TSO", "TXN", "TXT", "HSY", "TRV", "TMO", "TIF", "TWX", "TWC", "TJX", "TMK", "TSS", "TSCO", "RIG", "TRIP", "FOXA", "FOX", "TSN", "TYC", "USB", "UA", "UNP", "UAL", "UNH", "UPS", "URI", "UTX", "UHS", "UNM", "URBN", "VFC", "VLO", "VAR", "VTR", "VRSN", "VRSK", "VZ", "VRTX", "VIAB", "V", "VNO", "VMC", "WMT", "WBA", "DIS", "WM", "WAT", "ANTM", "WFC", "HCN", "WDC", "WU", "WY", "WHR", "WFM", "WMB", "WEC", "WYN", "WYNN", "XEL", "XRX", "XLNX", "XL", "XYL", "YHOO", "YUM", "ZBH", "ZION", "ZTS"];
-
-var db;
-var mongoError;
-mongoClient.connect(mongoUrl, function (error, database) { 
-    db = database;
-    mongoError = error;
-    console.log("starting....");
+mongoose.connect(mongoConfig.url + '/' + mongoConfig.db, {
+  useNewUrlParser: true, 
+  useUnifiedTopology: true
+}, function(error) {
+    if (error) {
+        console.log(error);
+    }
 });
 
-/* Encryption tools */
-var crypto = require('crypto'),
-    algorithm = 'aes-256-ctr',
-    password = 'q9A7Xgls';
+['SIGINT', 'SIGTERM', 'SIGQUIT']
+  .forEach(signal => process.on(signal, () => {
+    if (mongoClient) {
+        mongoClient.close();
+    }
+    process.exit();
+  }));
 
-function encrypt(text) {
-    var cipher = crypto.createCipher(algorithm, password)
-    var crypted = cipher.update(text, 'utf8', 'hex')
-    crypted += cipher.final('hex');
-    return crypted;
+var grabTickerData = async function(ticker, dateString, callback) {
+    let url = '';
+    try {
+        url += polygonConfig.endpoints.yesterday;
+        url = url.replace('{ticker}', ticker);
+        url = url.replace('{date}', dateString);
+        url = url.replace('{date}', dateString);
+        url += url.includes('?') ? '&apiKey=' : '?apiKey=';
+        url += polygonConfig.apiKey;
+    } catch(error) {
+        callback(error, null);
+    }
+
+    const result = await got(url).json();
+    callback(null, result, url);
 }
 
-function decrypt(text) {
-    var decipher = crypto.createDecipher(algorithm, password)
-    var dec = decipher.update(text, 'hex', 'utf8')
-    dec += decipher.final('utf8');
-    return dec;
-}
+/* Every Sunday at 12am grab list of S&P tickers from wikipedia */
+schedule.scheduleJob('0 0 0 * * 7', function() {
+    request({
+        method: 'GET',
+        url: 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    }, (err, res, body) => {
+        if (err) return console.error(err);
+        let $ = cheerio.load(body);
+        var dataFieldKeys = [];
+        var colHeaders = $('table[id="constituents"] > tbody > tr > th');
+        for (var i = 0; i < colHeaders.length; i++) {
+            var td = colHeaders[i].childNodes[0];
+            if (td.childNodes) {
+                dataFieldKeys.push(td.childNodes[0].data.trim());
+            } else {
+                dataFieldKeys.push(td.data.trim());
+            }
+        }
 
-// configuring express to use body-parser as middle-ware.
-app.use(bodyParser.urlencoded({ extended: false }));
-
-/**
-  * Every 5 minutes, record the price of all of the stocks in the objects table 
-  * (stocks have the type: "stock").
-  */
-schedule.scheduleJob('0 */5 * * * *', function() {
-    for(var queryIndex = 0; queryIndex <= Math.floor((symbols.length-1)/100); queryIndex++) {
-        // delay the query in order to create even distribution of queries over the entire minute period
-        // (send a query every 2 seconds)
-        setTimeout(function (symbolsToGrab, isLastSymbol) {
-            return function () {
-                // grab and insert into the values collection each of the new values for each of the symbols
-                grabAndInsertNewStockValues(symbolsToGrab);
-                // if on the last symbol, then check that all of the active predictions are still valid
-                if (isLastSymbol) {
-                    checkActivePredictions();
+        var companies = [];
+        var domTableRows = $('table[id="constituents"] > tbody > tr');
+        var domTableRows = domTableRows.toArray().filter(row => {
+            for (var i = 0; i < row.children.length; i++) {
+                if (row.children[i].name == 'th') {
+                    return false;
                 }
             }
-        }(symbols.slice(queryIndex * 100, (queryIndex + 1) * 100), queryIndex == Math.floor((symbols.length - 1) / 100)),
-        queryIndex * 10000); // stagger find-and-store prices opertation each by 10 seconds
-    }
-});
-
-/** 
-  * Everyday Tues-Sat at 12:03am (day after weekday) record the day's open, close, high, low 
-  * using the data stored for that day
-  */
-schedule.scheduleJob('0 3 0 * * *', function () {
-
-    for(var symbolI = 0; symbolI <= Math.floor((symbols.length-1)/20); symbolI++) {
-        setTimeout(function (symbolsToGrab) {
-            return function () {
-                crunchYesterdayValues(symbolsToGrab);
-            }
-        }(symbols.slice(symbolI * 20, (symbolI + 1) * 20)),
-        symbolI * 10000);
-    }
-});
-
-var crunchYesterdayValues = function(symbolsToGrab) {
-
-    var yesterdayDate = new Date();
-    yesterdayDate.setDate((new Date()).getDate() - 1);
-
-    // get yesterday's date at 12:00:00:00am
-    var yesterdayMidnight = new Date(
-        yesterdayDate.getFullYear(),
-        yesterdayDate.getMonth(), 
-        yesterdayDate.getDate(), 
-        9, 0, 0, 0);
-
-    
-    if (!mongoError) {
-        var valuesCollection = db.collection('values');
-
-        for(var symbolI = 0; symbolI < symbolsToGrab.length; symbolI++)
-        {
-            // make time $gte to yesterday midnight and $lte to today midnight
-            var findValuesObject = {};
-            findValuesObject.time = {};
-            findValuesObject.time.$gte = yesterdayMidnight.getTime() / 1000;
-            findValuesObject.time.$lte = yesterdayMidnight.getTime() / 1000 + 24*60*60;
-            findValuesObject.type = "stock";
-            findValuesObject.object = symbolsToGrab[symbolI];
-
-            // grab all values from yesterday
-            valuesCollection.find(findValuesObject).toArray(function (err, values) {
-                var historicalObject = {};
-                historicalObject.object = values[0].object;
-                historicalObject.type = values[0].type;
-                historicalObject.year = yesterdayDate.getFullYear();
-                historicalObject.month = yesterdayDate.getMonth() + 1;
-                historicalObject.day = yesterdayDate.getDate();
-                historicalObject.time = Math.round(new Date().getTime() / 1000)
-
-
-                var sortedValues = values.sort(function(a, b) {
-                    return parseFloat(a.time) - parseFloat(b.time);
-                });
-
-
-                /** calculate open **/
-                // grab the fist different value from the days values
-                var sI = 1;
-                var fistVal = sortedValues[0].value;
-                while(sI < sortedValues.length)
-                {
-                    if(Math.abs(sortedValues[sI].value - fistVal) >= 0.01)
-                    {
-                        historicalObject.open = 
-                            Math.round(sortedValues[sI].value * 100) / 100;
-                        break;
-                    }
-
-                    sI++;
-                }
-
-                // if the values aren't all the same -> then get close, low, and high
-                if('open' in historicalObject)
-                {
-                    /** calculate close **/
-                    historicalObject.close = 
-                        sortedValues[sortedValues.length - 1].value;
-
-
-                        /** calculate high **/
-                    historicalObject.high = 
-                        Math.max.apply(Math,values.map(function(o){return o.value;}));
-
-
-                        /** calculate low **/
-                    historicalObject.low = 
-                        Math.min.apply(Math,values.map(function(o){return o.value;}));
-
-                    // insert the historical object to the historicalValues collection
-                    var historicalValuesCollection = db.collection('historicalValues');
-                    historicalValuesCollection.insertOne(historicalObject, 
-                        function (errValuesInsert, resultValuesInsert) {
-                    });
-                }
-            });
-        }
-    }
-}
-
-/**
-  * Grab the historical data for the day before every day at 12:13am
-  * Every day at 12:13am record the day's high/low for each of the stocks in the historicalValues collection.
-  */
-/*schedule.scheduleJob('0 13 0 * * *', function () {
-    // get the day, month, and year of yesterday
-    var yesterdayDate = new Date();
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1); // get yesterday's date
-    var yesterdayYear = yesterdayDate.getFullYear();
-    var yesterdayMonth = yesterdayDate.getMonth();
-    var yesterdayDay = yesterdayDate.getDate();
-    // populate the historical data table in chunks of 100 stocks (every 10 seconds)
-    for(var queryIndex = 0; queryIndex <= Math.floor((symbols.length-1)/100); queryIndex++) {
-        // delay the query in order to create even distribution of queries over the entire minute period
-        // (send a query every 2 seconds)
-        setTimeout(function (symbolsToGrabHistoricalValuesFor, day, month, year) {
-            return function () {
-                getHistoricalData(symbolsToGrabHistoricalValuesFor, day, month, year);
-            }
-        }(symbols.slice(queryIndex * 100, (queryIndex + 1) * 100), yesterdayDay, yesterdayMonth, yesterdayYear),
-        queryIndex * 10000); // stagger find-and-store prices opertation each by 10 seconds
-    }
-
-});*/
-
-/*var getHistoricalData = function(symbolsToGet, day, monthIndex, year) {
-    var monthNumber = monthIndex + 1; // human readable month number always monthIndex + 1 (1-12 not 0-11)
-    var queryString = "select * from yahoo.finance.historicaldata where symbol in ('" + symbolsToGet.join("','") + "') and startDate = '" +
-        year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "' and endDate = '" +
-        year.toString() + "-" + monthNumber.toString() + "-" + day.toString() + "'";
-
-    console.log(queryString);
-    var queryYQL = new YQL(queryString, 
-        { env: 'store://datatables.org/alltableswithkeys' });
-    //queryYQL.setOptions({
-    //    env: 'store://datatables.org/alltableswithkeys'
-    //});
-
-    // execute the query to retreive the historical values from the day
-    queryYQL.exec(function (err, data) {
-        console.log(data);
-        if (!mongoError && data != null && 
-            data.hasOwnProperty("query") && 
-            data.query.hasOwnProperty("results") && 
-            data.query.results != null && 
-            data.query.results.hasOwnProperty("quote") && 
-            data.query.results.quote != null) {
-            console.log("here2");
-            var newPriceDocuments = Array();
-            for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
-                var thisQuote = data.query.results.quote[resultIndex];
-                // create the value document to insert into the historicalValues collection
-                var valueDocument = {};
-                valueDocument.object = thisQuote.Symbol;
-                valueDocument.type = "stock";
-                // set the value doc's times
-                valueDocument.year = year; //parseInt(thisQuote.Date.split("-")[0]);
-                valueDocument.month = monthNumber; // parseInt(thisQuote.Date.split("-")[1]);
-                valueDocument.day = day; //parseInt(thisQuote.Date.split("-")[2]);
-                valueDocument.time = 
-                    (new Date(year, monthIndex, day)).getTime()/1000;
-                // set the value doc's values
-                valueDocument.open = parseFloat(parseFloat(thisQuote.Open).toFixed(2));
-                valueDocument.close = parseFloat(parseFloat(thisQuote.Close).toFixed(2));
-                valueDocument.low = parseFloat(parseFloat(thisQuote.Low).toFixed(2));
-                valueDocument.high = parseFloat((parseFloat(thisQuote.High).toFixed(2)));
-                valueDocument.volume = parseInt(thisQuote.Volume);
-                console.log(valueDocument);
-                // add the new value document to the new price documents array
-                newPriceDocuments.push(valueDocument);
-            }
-
-            // insert the new historical values into the historical values collection
-            var historicalValuesCollection = db.collection('historicalValues');
-            historicalValuesCollection.insert(newPriceDocuments, 
-                function (errValuesInsert, resultValuesInsert) {
-            });
-        }
-    });
-};*/
-
-/**
-  * Every 12 hours (at 1am and 1pm) on the 8th minute, wipe all of 
-  * the prices that are either older than 7 days (168 hours)
-  */
-schedule.scheduleJob('0 08 1,13 * * *', function() {
-    // time now
-    var oneWeekAgoTime = Math.floor((new Date).getTime() / 1000);
-    // time 25 hours ago
-    oneWeekAgoTime -= (168*60*60);
-    if (!mongoError) {
-        var valuesCollection = db.collection('values');
-        // remove all prices recorded before 25 hours ago.
-        valuesCollection.deleteMany(
-            { time: {$lt: oneWeekAgoTime} },
-            function (err, result) { }
-        );
-    }
-});
-
-/**
-  * Every 12 hours (at 3am and 3pm) on the 8th minute, prune all prices older than 1 day (24 hours) 
-  * except those on 15 min intervals
-  */
-schedule.scheduleJob('0 8 3,15 * * *', function() {
-    // time now
-    var oneDayAgoTime = Math.floor((new Date).getTime() / 1000);
-    // time 25 hours ago
-    oneDayAgoTime -= (24*60*60);
-    if (!mongoError) {
-        var valuesCollection = db.collection('values');
-        // remove all prices recorded before 25 hours ago.
-        valuesCollection.deleteMany(
-            { time: {$and: [{$lt: oneDayAgoTime}, {$not: {$mod: [15, 0]}} ] }   },
-            function (err, result) { }
-        );
-    }
-});
-
-/**
-  * For each of the symbols, grab the current price and store it in the Values table
-  */
-var grabAndInsertNewStockValues = function (symbolsToGet) {
-    var queryString = "select * from yahoo.finance.quote where symbol in ('" + symbolsToGet.join("','") + "') ";
-    var queryYQL = new YQL(queryString);
-    // execute the query to retreive the prices
-    queryYQL.exec(function (err, data) {
-        if (!mongoError && data != null && data.hasOwnProperty("query") && data.query.hasOwnProperty("results")) {
-            // documents to insert as values (one for each price received)
-            var currentTime = Math.floor((new Date).getTime() / 60000) * 60;
-            var newPriceDocuments = Array();
-            for (var resultIndex = 0; resultIndex < data.query.results.quote.length; resultIndex++) {
-                var thisQuote = data.query.results.quote[resultIndex];
-                var priceDocument = {};
-                priceDocument.object = thisQuote.Symbol;
-                priceDocument.type = "stock";
-                priceDocument.value = parseFloat(thisQuote.LastTradePriceOnly);
-                priceDocument.time = currentTime;
-                newPriceDocuments.push(priceDocument);
-            }
-            // insert the value in the values collection
-            var valuesCollection = db.collection('values');
-            valuesCollection.insert(newPriceDocuments, function (errValuesInsert, resultValuesInsert) {
-                // remove all values from the recentValues collection that match symbols about to be inserted
-                var recentValuesCollection = db.collection('recentValues');
-                recentValuesCollection.deleteMany(
-                    {object: {$in: symbolsToGet}},
-                    function (errRecentValuesRemove, resultRecentValuesRemove) {
-                        // insert all of the new values in the recentValues collection (should replace all one's that were jsut removed)
-                        recentValuesCollection.insert(newPriceDocuments, 
-                            function (errRecentValuesInsert, resultRecentValuesInsert) {
-                        });
-                    });
-            });
-        }
-    });
-}
-
-/**
-  * Check all of the active stock predictions and update their status if needed
-  */
-var checkActivePredictions = function () {
-
-    if (!mongoError) {
-        var predictionsCollection = db.collection('predictions');
-        predictionsCollection.find({ type: "stock", status: "active" }).toArray(function (err, activePredictions) {
-            if (typeof (activePredictions) != "undefined" && activePredictions != null) {
-                // fetch all of the recent stock values from the recentValues collection
-                var recentValuesFindObject = {};
-                recentValuesFindObject.type = "stock";
-                var recentValuesCollection = db.collection('recentValues');
-                recentValuesCollection.find(recentValuesFindObject).toArray(function (errRecentValuesFind, recentValues) {
-                    if (typeof (recentValues) != "undefined" && recentValues != null) {
-                        // create an object that maps each stock name to its index in recentValues
-                        var symbolsIndicies = {};
-                        for (var recentValueIndex = 0; recentValueIndex < recentValues.length; recentValueIndex++) {
-                            if (typeof (recentValues[recentValueIndex].object) != "undefined") {
-                                symbolsIndicies[recentValues[recentValueIndex].object] = recentValueIndex;
-                            }
-                        }
-                    
-                        for (var predictionIndex = 0; predictionIndex < activePredictions.length; predictionIndex++) {
-                            var thisPrediction = activePredictions[predictionIndex]
-                            if (symbolsIndicies.hasOwnProperty(thisPrediction.object)) {
-                                // grab this prediction's object's most recent value
-                                var mostRecentValueDocument = recentValues[symbolsIndicies[thisPrediction.object]];
-
-                                // the object that will be used to update the prediction
-                                // (assuming it's status has found to have changed from active)
-                                var predictionUpdateObject = {};
-                                predictionUpdateObject.$set = {};
-
-                                // if haven't reached the prediction end time yet, then check if it's still active
-                                if(mostRecentValueDocument.time < thisPrediction.end) {
-                                    // go through each of the possible cases that could cause prediction to fail
-                                    if (thisPrediction.action == "reach above" && mostRecentValueDocument.value > thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = "true";
-                                    }
-                                    else if (thisPrediction.action == "sink below" && mostRecentValueDocument.value < thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = "true";
-                                    }
-                                    else if (thisPrediction.action == "stay above" && parseFloat(mostRecentValueDocument.value) <= thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = "false";
-                                    }
-                                    else if (thisPrediction.action == "stay below" && mostRecentValueDocument.value >= thisPrediction.value) {
-                                        predictionUpdateObject.$set.status = "false";
-                                    }
-
-                                    // if the prediciton's status has been changed and it's no longer active, then create the reason message
-                                    if(predictionUpdateObject.$set.hasOwnProperty("status") && predictionUpdateObject.$set.status != "active") {
-                                        predictionUpdateObject.$set.reason = 
-                                            getReasonMessage(thisPrediction, mostRecentValueDocument, predictionUpdateObject.$set.status == "true");
-                                    }
-                                }
-
-                                // the prediction end time has been reached 
-                                // (the object's value in the recentValues collection is past the end time of the prediction) 
-                                // so check if it was true or failed
-                                else {
-                                    var currentTime = Math.floor(new Date().getTime() / 1000);
-                                    if (thisPrediction.end <= currentTime) {
-                                        // predicition was to stay above or below during the time interval 
-                                        // (which it did because it statyed valid until the end time)
-                                        if (thisPrediction.action == "stay above" || thisPrediction.action == "stay below") {
-                                            predictionUpdateObject.$set.status = "true";
-                                            predictionUpdateObject.$set.reason = 
-                                                getReasonMessage(thisPrediction, mostRecentValueDocument, true);
-                                        }
-                                        // predicition was to rise above/below a certain value (which it did NOT because the end time 
-                                        // has been reached and the prediction status has still not been declared true)
-                                        else {
-                                            predictionUpdateObject.$set.status = "false";
-                                            predictionUpdateObject.$set.reason = 
-                                                getReasonMessage(thisPrediction, mostRecentValueDocument, false);
-                                        }
-                                    }
-                                }
-
-                                // update the prediction if it's status was found to have changed from active
-                                if (typeof(predictionUpdateObject.$set.status) != "undefined" && 
-                                    predictionUpdateObject.$set.status != "active") {
-
-                                    // update prediction in the predictions collection
-                                    db.collection('predictions').updateOne(
-                                      { _id: thisPrediction._id },
-                                      predictionUpdateObject,
-                                      function (err, results) {});
-
-                                    // send email to the predictor informing 
-                                    // them of the status change
-                                    sendEmailToPredictor(decrypt(thisPrediction.predictor),
-                                        predictionUpdateObject.$set.status,
-                                        predictionUpdateObject.$set.reason,
-                                        thisPrediction._id);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
+            return true;
         });
-    }
-}
 
-var sendEmailToPredictor = function(predictorEmail, predictionStatus, predictionReason, predictionId) {
-    var smtpTransport = nodemailer.createTransport("SMTP",{
-        host: "mail.gandi.net", // hostname
-        secureConnection: true, // use SSL
-        port: 465, // port for secure SMTP
-        auth: {
-            user: "predict@toine.io",
-            pass: "Predict$$123"
-        }
-    });
+        rowsLoop:
+        for (var rowI = 0; rowI < domTableRows.length; rowI++) {
+            var domRowTds = domTableRows[rowI].children.filter(row => row.type == 'tag');
+            if (domRowTds.length != dataFieldKeys.length) {
+                console.log('Mismatch number of cols with this row\'s number of cols' + domTableRows.innerHTML);
+                continue;
+            }
 
-    var htmlEmail = "<div style='";
-    if(predictionStatus == "true") {
-        htmlEmail += "color: #53B981;";
-    }
-    else {
-        htmlEmail += "color: red;";
-    }
-    htmlEmail += "'>";
-    htmlEmail += "<h1>Your prediction turned out to be " + predictionStatus + ".</h1>";
-    htmlEmail += "<br/>";
-    htmlEmail += "<h3>" + predictionReason + " Check the prediction " +
-        "<a href='http://predict.toine.io/prediction/" + predictionId.toString() + 
-        "'>here</a>.</h3>";
-    htmlEmail += "</div>";
-
-    // setup e-mail data with unicode symbols
-    var mailOptions = {
-        from: "Predict.toine.io ✔ <predict@toine.io>", // sender address
-        to: predictorEmail, // list of receivers
-        subject: "The result of your prediction is in... ", // Subject line
-        text: "",
-        html: htmlEmail
-    };
-
-    // send mail with defined transport object
-    smtpTransport.sendMail(mailOptions, function(error, response){
-        if(error) {
-            console.log(error);
+            var company = {};
+            // populate company object with this row
+            for (var colI = 0; colI < domRowTds.length; colI++) {
+                if (domRowTds[colI].firstChild != null) {
+                    if (domRowTds[colI].firstChild.type == 'text') {
+                        company[dataFieldKeys[colI]] = domRowTds[colI].firstChild.data.trim();
+                    } else if (domRowTds[colI].firstChild.name == 'a') {
+                        company[dataFieldKeys[colI]] = domRowTds[colI].firstChild.firstChild.data.trim()
+                    } else {
+                        console.warn('Giving up on row: ' + chalk.blue(cheerio.html(domTableRows[rowI])));
+                        continue rowsLoop; // give up on this row
+                    }
+                }
+            }
+            companies.push(company);
         }
 
-        // if you don't want to use this transport object anymore, uncomment following line
-        smtpTransport.close(); // shut down the connection pool, no more messages
+        for (var i = 0; i < companies.length; i++) {
+            let query = {};
+            let update = {raw: companies[i]};
+            let options = {upsert: true, new: true, setDefaultsOnInsert: true};
+            Ticker.findOneAndUpdate(query, update, options, function(err, ticker) {
+                if (err) {
+                    console.warn(chalk.red('Error creating ticker for: '), update.raw,
+                        '\n', chalk.red('Error: '), err);
+                }
+            });
+        }
     });
-};
+});
 
-var getReasonMessage = function(predictionDocument, mostRecentValueDocument, isPredictionSuccessful) {
-    var mostRecentValueDate = new Date(0);
-    mostRecentValueDate.setSeconds(mostRecentValueDocument.time);
 
-    var resonMessage = "The price of " + predictionDocument.object + " ";
-    resonMessage += (isPredictionSuccessful) ? "did successfully " : "failed to ";
-    resonMessage += predictionDocument.action + " $" + predictionDocument.value.toFixed(2).toString();
-    resonMessage += " by the end time of the prediction. The price was last checked at ";
-    resonMessage += getHumanReadableTime(mostRecentValueDate) + " on " + mostRecentValueDate.toLocaleDateString();
-    resonMessage += " when it was $" + mostRecentValueDocument.value.toFixed(2).toString() + ".";
-
-    return resonMessage;
-}
-
-var getHumanReadableTime = function(dateToGetTimeOf) {
-    var hours = dateToGetTimeOf.getHours();
-    var minutes = dateToGetTimeOf.getMinutes();
-    var minutesString = (minutes < 10) ? "0" : "";
-    minutesString += minutes.toString();
-    var hoursString = ((hours % 12) > 0) ? (hours % 12).toString() : "12";
-    var timePostfix = (hours < 12) ? "am" : "pm";
-    return hoursString + ":" + minutesString + timePostfix;
-}
-
-/**
-  * Create the tables for the S&P
-  */
-/*var initialRouter = express.Router();
-app.use('/init', initialRouter);
-initialRouter.use(function (req, res, next) {
-    mongoClient.connect(mongoUrl, function (mongoError, db) {
-        var objectsCollection = db.collection('objects');
-        if (!mongoError) {
-            var YQL = require('yql');
-            var symbols = ["MMM", "ABT", "ABBV", "ACN", "ACE", "ATVI", "ADBE", "ADT", "AAP", "AES", "AET", "AFL", "AMG", "A", "GAS", "APD", "ARG", "AKAM", "AA", "AGN", "ALXN", "ALLE", "ADS", "ALL", "GOOGL", "GOOG", "ALTR", "MO", "AMZN", "AEE", "AAL", "AEP", "AXP", "AIG", "AMT", "AMP", "ABC", "AME", "AMGN", "APH", "APC", "ADI", "AON", "APA", "AIV", "AAPL", "AMAT", "ADM", "AIZ", "T", "ADSK", "ADP", "AN", "AZO", "AVGO", "AVB", "AVY", "BHI", "BLL", "BAC", "BK", "BCR", "BXLT", "BAX", "BBT", "BDX", "BBBY", "BRK-B", "BBY", "BIIB", "BLK", "HRB", "BA", "BWA", "BXP", "BSX", "BMY", "BRCM", "BF-B", "CHRW", "CA", "CVC", "COG", "CAM", "CPB", "COF", "CAH", "HSIC", "KMX", "CCL", "CAT", "CBG", "CBS", "CELG", "CNP", "CTL", "CERN", "CF", "SCHW", "CHK", "CVX", "CMG", "CB", "CI", "XEC", "CINF", "CTAS", "CSCO", "C", "CTXS", "CLX", "CME", "CMS", "COH", "KO", "CCE", "CTSH", "CL", "CPGX", "CMCSA", "CMCSK", "CMA", "CSC", "CAG", "COP", "CNX", "ED", "STZ", "GLW", "COST", "CCI", "CSX", "CMI", "CVS", "DHI", "DHR", "DRI", "DVA", "DE", "DLPH", "DAL", "XRAY", "DVN", "DO", "DFS", "DISCA", "DISCK", "DG", "DLTR", "D", "DOV", "DOW", "DPS", "DTE", "DD", "DUK", "DNB", "ETFC", "EMN", "ETN", "EBAY", "ECL", "EIX", "EW", "EA", "EMC", "EMR", "ENDP", "ESV", "ETR", "EOG", "EQT", "EFX", "EQIX", "EQR", "ESS", "EL", "ES", "EXC", "EXPE", "EXPD", "ESRX", "XOM", "FFIV", "FB", "FAST", "FDX", "FIS", "FITB", "FSLR", "FE", "FISV", "FLIR", "FLS", "FLR", "FMC", "FTI", "F", "FOSL", "BEN", "FCX", "FTR", "GME", "GPS", "GRMN", "GD", "GE", "GGP", "GIS", "GM", "GPC", "GNW", "GILD", "GS", "GT", "GWW", "HAL", "HBI", "HOG", "HAR", "HRS", "HIG", "HAS", "HCA", "HCP", "HP", "HES", "HPQ", "HD", "HON", "HRL", "HST", "HCBK", "HUM", "HBAN", "ITW", "IR", "INTC", "ICE", "IBM", "IP", "IPG", "IFF", "INTU", "ISRG", "IVZ", "IRM", "JEC", "JBHT", "JNJ", "JCI", "JPM", "JNPR", "KSU", "K", "KEY", "GMCR", "KMB", "KIM", "KMI", "KLAC", "KSS", "KHC", "KR", "LB", "LLL", "LH", "LRCX", "LM", "LEG", "LEN", "LVLT", "LUK", "LLY", "LNC", "LLTC", "LMT", "L", "LOW", "LYB", "MTB", "MAC", "M", "MNK", "MRO", "MPC", "MAR", "MMC", "MLM", "MAS", "MA", "MAT", "MKC", "MCD", "MHFI", "MCK", "MJN", "WRK", "MDT", "MRK", "MET", "KORS", "MCHP", "MU", "MSFT", "MHK", "TAP", "MDLZ", "MON", "MNST", "MCO", "MS", "MOS", "MSI", "MUR", "MYL", "NDAQ", "NOV", "NAVI", "NTAP", "NFLX", "NWL", "NFX", "NEM", "NWSA", "NWS", "NEE", "NLSN", "NKE", "NI", "NBL", "JWN", "NSC", "NTRS", "NOC", "NRG", "NUE", "NVDA", "ORLY", "OXY", "OMC", "OKE", "ORCL", "OI", "PCAR", "PH", "PDCO", "PAYX", "PYPL", "PNR", "PBCT", "POM", "PEP", "PKI", "PRGO", "PFE", "PCG", "PM", "PSX", "PNW", "PXD", "PBI", "PCL", "PNC", "RL", "PPG", "PPL", "PX", "PCP", "PCLN", "PFG", "PG", "PGR", "PLD", "PRU", "PEG", "PSA", "PHM", "PVH", "QRVO", "PWR", "QCOM", "DGX", "RRC", "RTN", "O", "RHT", "REGN", "RF", "RSG", "RAI", "RHI", "ROK", "COL", "ROP", "ROST", "RCL", "R", "CRM", "SNDK", "SCG", "SLB", "SNI", "STX", "SEE", "SRE", "SHW", "SIAL", "SIG", "SPG", "SWKS", "SLG", "SJM", "SNA", "SO", "LUV", "SWN", "SE", "STJ", "SWK", "SPLS", "SBUX", "HOT", "STT", "SRCL", "SYK", "STI", "SYMC", "SYY", "TROW", "TGT", "TEL", "TE", "TGNA", "THC", "TDC", "TSO", "TXN", "TXT", "HSY", "TRV", "TMO", "TIF", "TWX", "TWC", "TJX", "TMK", "TSS", "TSCO", "RIG", "TRIP", "FOXA", "FOX", "TSN", "TYC", "USB", "UA", "UNP", "UAL", "UNH", "UPS", "URI", "UTX", "UHS", "UNM", "URBN", "VFC", "VLO", "VAR", "VTR", "VRSN", "VRSK", "VZ", "VRTX", "VIAB", "V", "VNO", "VMC", "WMT", "WBA", "DIS", "WM", "WAT", "ANTM", "WFC", "HCN", "WDC", "WU", "WY", "WHR", "WFM", "WMB", "WEC", "WYN", "WYNN", "XEL", "XRX", "XLNX", "XL", "XYL", "YHOO", "YUM", "ZBH", "ZION", "ZTS"];
-            for(var i = 0; i < symbols.length; i++) {
-                var queryString = "select * from yahoo.finance.quote where symbol in ('" + symbols[i] + "') ";
-                var queryYQL = new YQL(queryString);
-
-                queryYQL.exec(function(err, data) {
-                    objectsCollection.insertOne({
-                        object: data.query.results.quote.Symbol,
-                        type: "stock",
-                        company: data.query.results.quote.Name
-                    }, function (err, result) {});
-                });
+/* Tues-Sat at 1:03am (day after weekday) record grab the high/lows from previous day */
+schedule.scheduleJob('0 3 1 * * 2-6', function() {
+    Ticker.find({}, function(err, tickers) {
+        if (err) {
+            console.error('Error getting tickers from mongo: \n', err);
+        } else {
+            let _yesterday = new Date();
+            _yesterday.setDate(_yesterday.getDate() - 1);
+            let yesterdayDateString = dateFormat(_yesterday, "yyyy-mm-dd");
+            for (let i = 0; i < tickers.length; i++) {
+                setTimeout(function() {
+                    grabTickerData(tickers[i].symbol, yesterdayDateString, function(err, body, rawQuery = null) {
+                        let queryErrorMessage = chalk.red('Error: (Query: ') + rawQuery + chalk.red(')');
+                        if (err) {
+                            console.log(queryErrorMessage, '/n', err);
+                        } else {
+                            if (body.resultsCount > 0) {
+                                if (body.resultsCount > 1) {
+                                    console.warn(chalk.yellow('Unexpectedly received '), resultsCount,
+                                    chalk.yellow(' results for single day query (will use the first): '), '\n', body);
+                                }
+            
+                                let result = body.results[0];
+                                let date = new Date(result.t);
+            
+                                assert.strictEqual(yesterdayDateString, dateFormat(date, "yyyy-mm-dd"));
+    
+                                Range.create({
+                                    ticker: tickers[i], 
+                                    dateString: yesterdayDateString,
+                                    date: date,
+                                    low: result.l,
+                                    high: result.h
+                                }, function(err, range) {
+                                    if (err) {
+                                        console.error(queryErrorMessage, ' (getting creating range): \n', err);
+                                    } else {
+                                        console.log('Created price range: ', range);
+                                    }
+                                }); 
+                            } else {
+                                console.error(chalk.red('Error: No result for query: \n'), rawQuery);
+                            }
+                        }
+                    });
+                }, i * 60000 / polygonConfig.rateLimit);
             }
         }
     });
-});*/
+});
 
 app.listen(3090);

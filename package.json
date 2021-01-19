@@ -2,12 +2,22 @@
   "name": "express-html",
   "version": "0.0.1",
   "dependencies": {
-    "express": "latest",
-    "mongodb": "latest",
     "body-parser": "latest",
+    "chalk": "^4.1.0",
+    "cheerio": "^1.0.0-rc.5",
+    "config": "^3.3.3",
+    "dateformat": "^4.4.1",
+    "express": "latest",
+    "got": "^11.8.1",
+    "mongodb": "latest",
+    "mongoose": "^5.11.11",
     "node-schedule": "latest",
-    "yql": "latest",
+    "nodemailer": "0.7.1",
     "nodemailer-smtp-transport": "latest",
-    "nodemailer": "0.7.1"
+    "polygon.io": "^1.0.0",
+    "yql": "latest"
+  },
+  "scripts": {
+    "start": "node Server.js"
   }
 }
