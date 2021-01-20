@@ -4,7 +4,7 @@ const chalk = require('chalk');
 
 var Ticker = new Schema({
   symbol: String,
-  security: String,
+  name: String,
   sector: String,
   headquarters: String,
   dateAdded: Date,
@@ -14,7 +14,7 @@ var Ticker = new Schema({
 
 const KEY_ALIASES = {
   'symbol': {optional: false, aliases: ['Ticker']},
-  'security': {optional: false, aliases: ['name']},
+  'name': {optional: false, aliases: ['Security']},
   'sector': {optional: true, aliases: ['Industry', 'GICS', 'GICS Sub-Industry']},
   'headquarters': {optional: true, aliases: ['hq', 'location', 'Headquarters Location']},
   'dateAdded': {optional: true, aliases: ['Date First Added']},
