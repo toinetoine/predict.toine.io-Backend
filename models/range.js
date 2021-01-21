@@ -9,7 +9,11 @@ var Range = new Schema({
   dateString: String, // calendar date "yyyy-mm-dd"
   date: Date, // raw date object
   low: Number,
-  high: Number
+  high: Number,
+  open: Number,
+  close: Number,
+  volume: Number,
+  volumeWeightedPrice: Number  
 }, {timestamps: true});
 
 // enforce only 1 Range for each ticker each day

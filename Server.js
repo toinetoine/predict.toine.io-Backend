@@ -123,8 +123,8 @@ schedule.scheduleJob('0 0 0 * * 7', function() {
 });
 
 
-/* Tues-Sat at 1:03am (day after weekday) record grab the high/lows from previous day */
-schedule.scheduleJob('0 3 1 * * 2-6', function() {
+/* At 1:00am Tues-Sat (day after weekday) record grab the high/lows from previous day */
+schedule.scheduleJob('0 0 1 * * 2-6', function() {
     Ticker.find({}, function(err, tickers) {
         if (err) {
             console.error('Error getting tickers from mongo: \n', err);
@@ -155,7 +155,11 @@ schedule.scheduleJob('0 3 1 * * 2-6', function() {
                                     dateString: yesterdayDateString,
                                     date: date,
                                     low: result.l,
-                                    high: result.h
+                                    high: result.h,
+                                    open: result.o,
+                                    close: result.c,
+                                    volume: result.v,
+                                    volumeWeightedPrice: result.vw
                                 }, function(err, range) {
                                     if (err) {
                                         console.error(queryErrorMessage, ' (getting creating range): \n', err);
