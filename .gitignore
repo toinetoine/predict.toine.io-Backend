@@ -10,3 +10,4 @@ looted_server_info/*
 package-lock.json
 
 .vscode
+config
