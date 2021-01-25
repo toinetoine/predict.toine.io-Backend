@@ -12,6 +12,7 @@ const request = require('request');
 
 let Ticker = require('./models/ticker');
 let Range = require('./models/range');
+let Holiday = require('./models/holiday');
 
 var mongoClient;
 const mongoConfig = config.get('mongo');
@@ -44,6 +45,20 @@ var grabTickerData = async function(ticker, dateString, callback) {
         url = url.replace('{date}', dateString);
         url = url.replace('{date}', dateString);
         url += url.includes('?') ? '&apiKey=' : '?apiKey=';
+        url += polygonConfig.apiKey;
+    } catch(error) {
+        callback(error, null);
+    }
+
+    const result = await got(url).json();
+    callback(null, result, url);
+}
+
+var grabHolidays = async function(callback) {
+    let url = '';
+    try {
+        url += polygonConfig.endpoints.holidays;
+        url += '?apiKey=';
         url += polygonConfig.apiKey;
     } catch(error) {
         callback(error, null);
@@ -122,58 +137,92 @@ schedule.scheduleJob('0 0 0 * * 7', function() {
     });
 });
 
+/* At 11:45pm each day check for upcoming market holidays (and record if not yet recorded)*/
+schedule.scheduleJob('0 45 23 * * *', function() {
+    grabHolidays(function(err, holidays, rawQuery = null) {
+        if (err) {
+            console.error('Error getting upcoming holidays: \n', err);
+        } else {
+            if (!Array.isArray(holidays)) {
+                console.error(errorMessage, 'Expected array of holidays from query ',
+                    rawQuery, ' but got: ', holidays);
+            } else if (holidays.length == 0) {
+                console.info('No upcoming holidays found for query: ', rawQuery);
+            } else {
+                holidays.forEach(holiday => {
+                    let toStore = {name: holiday.name, dateString: holiday.date, date: new Date(holiday.date)};
+                    let options = {upsert: true, new: true, setDefaultsOnInsert: true};
+                    Holiday.findOneAndUpdate(toStore, toStore, options, function(err, holiday) {
+                        if (err) {
+                            console.warn(chalk.red('Error adding holiday: '), toStore,
+                                '\n', chalk.red('Error: '), err);
+                        }
+                    });
+                })
+            }
+        }
+    });
+});
 
 /* At 1:00am Tues-Sat (day after weekday) record grab the high/lows from previous day */
 schedule.scheduleJob('0 0 1 * * 2-6', function() {
-    Ticker.find({}, function(err, tickers) {
+    let yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 2);
+    let yesterdayDateString = dateFormat(yesterday, "yyyy-mm-dd");
+    Holiday.find({dateString: yesterdayDateString}, function(err, holidays) {
         if (err) {
-            console.error('Error getting tickers from mongo: \n', err);
+            console.error('Error getting holiday from mongo: \n', err);
+        } else if (holidays.length > 0) {
+            console.info('Skipping today because of holiday(s): ', holidays.map(holiday => holiday.name));
         } else {
-            let _yesterday = new Date();
-            _yesterday.setDate(_yesterday.getDate() - 1);
-            let yesterdayDateString = dateFormat(_yesterday, "yyyy-mm-dd");
-            for (let i = 0; i < tickers.length; i++) {
-                setTimeout(function() {
-                    grabTickerData(tickers[i].symbol, yesterdayDateString, function(err, body, rawQuery = null) {
-                        let queryErrorMessage = chalk.red('Error: (Query: ') + rawQuery + chalk.red(')');
-                        if (err) {
-                            console.log(queryErrorMessage, '/n', err);
-                        } else {
-                            if (body.resultsCount > 0) {
-                                if (body.resultsCount > 1) {
-                                    console.warn(chalk.yellow('Unexpectedly received '), resultsCount,
-                                    chalk.yellow(' results for single day query (will use the first): '), '\n', body);
-                                }
-            
-                                let result = body.results[0];
-                                let date = new Date(result.t);
-            
-                                assert.strictEqual(yesterdayDateString, dateFormat(date, "yyyy-mm-dd"));
-    
-                                Range.create({
-                                    ticker: tickers[i], 
-                                    dateString: yesterdayDateString,
-                                    date: date,
-                                    low: result.l,
-                                    high: result.h,
-                                    open: result.o,
-                                    close: result.c,
-                                    volume: result.v,
-                                    volumeWeightedPrice: result.vw
-                                }, function(err, range) {
-                                    if (err) {
-                                        console.error(queryErrorMessage, ' (getting creating range): \n', err);
+            Ticker.find({}, function(err, tickers) {
+                if (err) {
+                    console.error('Error getting tickers from mongo: \n', err);
+                } else {
+                    for (let i = 0; i < 3; i++) {
+                        setTimeout(function() {
+                            grabTickerData(tickers[i].symbol, yesterdayDateString, function(err, body, rawQuery = null) {
+                                if (err) {
+                                    console.log(chalk.red('Error: '), err);
+                                } else {
+                                    if (body.resultsCount > 0) {
+                                        if (body.resultsCount > 1) {
+                                            console.warn(chalk.yellow('Unexpectedly received '), resultsCount,
+                                            chalk.yellow(' results for single day query (will use the first): '), '\n', body);
+                                        }
+
+                                        let result = body.results[0];
+                                        let date = new Date(result.t);
+
+                                        assert.strictEqual(yesterdayDateString, dateFormat(date, "yyyy-mm-dd"));
+
+                                        Range.create({
+                                            ticker: tickers[i],
+                                            dateString: yesterdayDateString,
+                                            date: yesterday,
+                                            low: result.l,
+                                            high: result.h,
+                                            open: result.o,
+                                            close: result.c,
+                                            volume: result.v,
+                                            volumeWeightedPrice: result.vw
+                                        }, function(err, range) {
+                                            if (err) {
+                                                console.error(chalk.red('Error creating range for ',
+                                                    tickers[i], ' on ', yesterdayDateString, ': '), err);
+                                            } else {
+                                                console.log('Created price range: ', range);
+                                            }
+                                        });
                                     } else {
-                                        console.log('Created price range: ', range);
+                                        console.error(chalk.red('Error: No result for query: '), rawQuery);
                                     }
-                                }); 
-                            } else {
-                                console.error(chalk.red('Error: No result for query: \n'), rawQuery);
-                            }
-                        }
-                    });
-                }, i * 60000 / polygonConfig.rateLimit);
-            }
+                                }
+                            });
+                        }, i * 60000 / polygonConfig.rateLimit);
+                    }
+                }
+            });
         }
     });
 });
