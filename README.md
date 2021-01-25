@@ -10,7 +10,8 @@ Config should be placed under root in `config/default.json`
    "polygon": {
       "apiKey": "API KEY",
       "endpoints": {
-        "yesterday": "https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{date}/{date}"
+        "yesterday": "https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{date}/{date}",
+        "holidays": "https://api.polygon.io/v1/marketstatus/upcoming"
       },
       "rateLimit": 5
     }
